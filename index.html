@@ -6,72 +6,75 @@
 <title>AI VRM Chat</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body {
-    margin: 0; padding: 0; height: 100%; overflow: hidden;
-    background: #1a1a2e; font-family: system-ui, -apple-system, sans-serif;
-    color: #fff;
-  }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #1a1a2e; font-family: system-ui, -apple-system, sans-serif; color: #fff; }
   canvas { display: block; touch-action: none; }
-  #loading {
-    position: fixed; inset: 0; z-index: 100;
+
+  #loading { position: fixed; inset: 0; z-index: 100;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: #1a1a2e; gap: 18px; padding: 24px; text-align: center;
-  }
-  #loading .title { font-size: 20px; font-weight: 600; letter-spacing: .5px; }
+    background: #1a1a2e; gap: 18px; padding: 24px; text-align: center; }
+  #loading .title { font-size: 20px; font-weight: 600; }
   #loading .sub { font-size: 14px; color: #ffffff80; max-width: 320px; line-height: 1.5; }
   #progressBar { width: min(280px, 70vw); height: 6px; border-radius: 3px; background: #ffffff18; overflow: hidden; }
   #progressFill { height: 100%; width: 0%; background: #ff6b9d; transition: width .2s ease; }
   #loading.hidden { display: none; }
-  #errorBox {
-    display: none; margin-top: 12px; padding: 12px 16px;
+  #errorBox { display: none; margin-top: 12px; padding: 12px 16px;
     background: #ff4d4d22; border: 1px solid #ff4d4d55; border-radius: 10px;
     font-size: 12px; color: #ffaaaa; max-width: 90vw; word-break: break-word;
-    text-align: left; font-family: monospace;
-  }
+    text-align: left; font-family: monospace; }
 
-  /* Rotation control panel */
-  #rotPanel {
-    position: fixed; top: max(40px, calc(env(safe-area-inset-top) + 30px)); right: 10px;
+  /* Settings panel */
+  #settingsBtn { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 10px;
+    width: 36px; height: 36px; border-radius: 50%; background: #ffffff22;
+    border: none; color: #fff; font-size: 18px; cursor: pointer; z-index: 60;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #settingsPanel { position: fixed; inset: 0; background: #00000099; z-index: 70;
+    display: none; align-items: center; justify-content: center; padding: 20px; }
+  #settingsPanel.show { display: flex; }
+  #settingsInner { background: #1e1e30; border-radius: 16px; padding: 22px;
+    width: min(420px, 90vw); border: 1px solid #ffffff20; }
+  #settingsInner h3 { margin: 0 0 12px; font-size: 16px; }
+  #settingsInner p { font-size: 12px; color: #ffffff99; line-height: 1.5; margin: 0 0 12px; }
+  #settingsInner a { color: #ff6b9d; }
+  #apiKeyInput { width: 100%; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid #ffffff30; background: #ffffff10; color: #fff;
+    font-size: 13px; font-family: monospace; outline: none; }
+  #apiKeyInput:focus { border-color: #ff6b9d; }
+  #settingsBtns { display: flex; gap: 10px; margin-top: 14px; }
+  #settingsBtns button { flex: 1; padding: 12px; border-radius: 10px;
+    border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
+  #saveKeyBtn { background: #ff6b9d; color: #fff; }
+  #cancelKeyBtn { background: #ffffff22; color: #fff; }
+  #keyStatus { font-size: 11px; margin-top: 10px; color: #8f8; font-family: monospace; }
+
+  #rotPanel { position: fixed; top: max(50px, calc(env(safe-area-inset-top) + 40px)); right: 10px;
     background: #00000066; border-radius: 10px; padding: 8px; z-index: 50;
-    display: none; gap: 6px; flex-direction: column;
-  }
+    display: none; gap: 6px; flex-direction: column; }
   #rotPanel.show { display: flex; }
-  #rotPanel button {
-    padding: 8px 12px; border-radius: 8px; border: none;
-    background: #ffffff22; color: #fff; font-size: 12px; cursor: pointer;
-    font-family: monospace;
-  }
+  #rotPanel button { padding: 8px 12px; border-radius: 8px; border: none;
+    background: #ffffff22; color: #fff; font-size: 12px; cursor: pointer; font-family: monospace; }
   #rotPanel button.active { background: #ff6b9d; }
 
-  #bubble {
-    position: fixed; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
-    max-width: min(560px, 90vw); padding: 14px 20px; border-radius: 18px;
-    background: #ffffff18; color: #fff; font-size: 15px; line-height: 1.4;
+  #bubble { position: fixed; top: max(60px, calc(env(safe-area-inset-top) + 50px)); left: 50%;
+    transform: translateX(-50%); max-width: min(560px, 88vw); padding: 14px 20px; border-radius: 18px;
+    background: #ffffff22; color: #fff; font-size: 15px; line-height: 1.4;
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     border-left: 3px solid #ff6b9d; opacity: 0; transition: opacity .3s;
-    pointer-events: none; z-index: 20;
-  }
+    pointer-events: none; z-index: 20; }
   #bubble.show { opacity: 1; }
-  #chatBox {
-    position: fixed; left: 50%; transform: translateX(-50%);
+
+  #chatBox { position: fixed; left: 50%; transform: translateX(-50%);
     bottom: max(16px, env(safe-area-inset-bottom));
-    width: min(680px, 92vw); display: flex; gap: 8px; z-index: 10;
-  }
-  #userInput {
-    flex: 1; padding: 14px 18px; border-radius: 30px; border: none; outline: none;
+    width: min(680px, 92vw); display: flex; gap: 8px; z-index: 10; }
+  #userInput { flex: 1; padding: 14px 18px; border-radius: 30px; border: none; outline: none;
     background: #ffffff18; color: #fff; font-size: 15px;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); min-width: 0;
-  }
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); min-width: 0; }
   #userInput::placeholder { color: #ffffff70; }
-  #sendBtn {
-    padding: 14px 22px; border-radius: 30px; border: none; cursor: pointer;
-    background: #ff6b9d; color: #fff; font-weight: 600; font-size: 15px; flex-shrink: 0;
-  }
+  #sendBtn { padding: 14px 22px; border-radius: 30px; border: none; cursor: pointer;
+    background: #ff6b9d; color: #fff; font-weight: 600; font-size: 15px; flex-shrink: 0; }
   #sendBtn:disabled { opacity: .5; cursor: not-allowed; }
-  #status {
-    position: fixed; top: max(6px, env(safe-area-inset-top)); right: 10px;
-    color: #ffffff80; font-size: 11px; z-index: 30; font-family: monospace;
-  }
+  #status { position: fixed; top: max(8px, env(safe-area-inset-top)); right: 10px;
+    color: #ffffff80; font-size: 11px; z-index: 30; font-family: monospace; }
 </style>
 </head>
 <body>
@@ -83,7 +86,21 @@
     <div id="errorBox"></div>
   </div>
 
-  <!-- Rotation debug panel -->
+  <button id="settingsBtn" title="Settings">⚙️</button>
+
+  <div id="settingsPanel">
+    <div id="settingsInner">
+      <h3>🔑 Gemini API Key</h3>
+      <p>Free key lo: <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a></p>
+      <input id="apiKeyInput" type="password" placeholder="AIza..." autocomplete="off" />
+      <div id="settingsBtns">
+        <button id="cancelKeyBtn">Cancel</button>
+        <button id="saveKeyBtn">Save</button>
+      </div>
+      <div id="keyStatus"></div>
+    </div>
+  </div>
+
   <div id="rotPanel">
     <button data-rot="0">0°</button>
     <button data-rot="pi">180°</button>
@@ -115,10 +132,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 /* ================= CONFIG ================= */
-const VRM_URL = './character.vrm?v=6';
-const API_URL = '';
-const API_KEY = '';
-const ROTATION = 0;   // 0, Math.PI, Math.PI/2, -Math.PI/2 — debug panel se change kar sakte ho
+const VRM_URL = './character.vrm?v=7';
+const GEMINI_MODEL = 'gemini-1.5-flash';
 
 /* ================= DOM ================= */
 const loadingEl = document.getElementById('loading');
@@ -130,6 +145,12 @@ const bubble    = document.getElementById('bubble');
 const input     = document.getElementById('userInput');
 const sendBtn   = document.getElementById('sendBtn');
 const rotPanel  = document.getElementById('rotPanel');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsPanel = document.getElementById('settingsPanel');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const saveKeyBtn = document.getElementById('saveKeyBtn');
+const cancelKeyBtn = document.getElementById('cancelKeyBtn');
+const keyStatus = document.getElementById('keyStatus');
 
 function showError(msg) {
   errorBox.style.display = 'block';
@@ -137,32 +158,45 @@ function showError(msg) {
   loadText.textContent = '❌ Load fail ho gaya';
 }
 
+/* ================= SETTINGS ================= */
+const KEY_STORAGE = 'gemini_api_key_v1';
+function getApiKey() { return localStorage.getItem(KEY_STORAGE) || ''; }
+function setApiKey(k) { k ? localStorage.setItem(KEY_STORAGE, k) : localStorage.removeItem(KEY_STORAGE); }
+
+settingsBtn.addEventListener('click', () => {
+  apiKeyInput.value = getApiKey();
+  keyStatus.textContent = '';
+  settingsPanel.classList.add('show');
+});
+cancelKeyBtn.addEventListener('click', () => settingsPanel.classList.remove('show'));
+saveKeyBtn.addEventListener('click', () => {
+  const k = apiKeyInput.value.trim();
+  setApiKey(k);
+  keyStatus.textContent = k ? '✅ Saved!' : '🗑️ Cleared';
+  setTimeout(() => settingsPanel.classList.remove('show'), 700);
+});
+
 /* ================= SCENE ================= */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a2e);
 
 const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.01, 50);
-// Camera position temporary — model load hone ke baad auto-adjust karengi
 camera.position.set(0, 1.4, 2);
 camera.lookAt(0, 1.3, 0);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
-// Lights (intense taaki model clearly dikhe)
 scene.add(new THREE.AmbientLight(0xffffff, 1.5));
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
-keyLight.position.set(1, 3, 2);
-scene.add(keyLight);
+keyLight.position.set(1, 3, 2); scene.add(keyLight);
 const rimLight = new THREE.DirectionalLight(0x88aaff, 1.0);
-rimLight.position.set(-2, 2, -1);
-scene.add(rimLight);
+rimLight.position.set(-2, 2, -1); scene.add(rimLight);
 const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
-fillLight.position.set(0, 1, 3);
-scene.add(fillLight);
+fillLight.position.set(0, 1, 3); scene.add(fillLight);
 
 /* ================= VRM LOAD ================= */
 let vrm = null;
@@ -179,46 +213,37 @@ loader.load(VRM_URL, (gltf) => {
     if (VRMUtils.combineSkeletons) VRMUtils.combineSkeletons(gltf.scene);
     if (VRMUtils.combineMorphs) VRMUtils.combineMorphs(vrm);
 
-    vrm.scene.rotation.y = ROTATION;
+    vrm.scene.rotation.y = 0;
     vrm.scene.position.set(0, 0, 0);
-
-    // ✅ AUTO-FRAMING: model ka actual size compute karo
     scene.add(vrm.scene);
     vrm.scene.updateMatrixWorld(true);
 
     const box = new THREE.Box3().setFromObject(vrm.scene);
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
+    const size = new THREE.Vector3(); const center = new THREE.Vector3();
+    box.getSize(size); box.getCenter(center);
+    console.log('VRM bounds:', box, size);
 
-    console.log('VRM bounds:', { min: box.min, max: box.max, size, center });
-
-    // Model ko floor pe rakho aur center karo
+    // ✅ MODEL THODA UPAR — offset +0.08
     vrm.scene.position.x = -center.x;
     vrm.scene.position.z = -center.z;
-    vrm.scene.position.y = -box.min.y;
+    vrm.scene.position.y = -box.min.y + 0.08;
 
-    // Camera ko model ke size ke hisaab se adjust karo
     const height = size.y || 1.5;
     const fovRad = (camera.fov * Math.PI) / 180;
-    const distance = (height * 1.1) / (2 * Math.tan(fovRad / 2));
+    let distance = (height * 1.15) / (2 * Math.tan(fovRad / 2));
+    if (innerWidth < innerHeight) distance *= 1.2;
 
-    camera.position.set(0, height * 0.75, distance);
-    camera.lookAt(0, height * 0.62, 0);
-
-    // Vary FOV if portrait/landscape
-    if (innerWidth < innerHeight) {
-      // mobile portrait — pull camera back a bit
-      camera.position.z *= 1.15;
-    }
+    camera.position.set(0, height * 0.80, distance);
+    camera.lookAt(0, height * 0.68, 0);   // ✅ camera upar dekhegi
     camera.updateProjectionMatrix();
 
+    console.log('Available expressions:', vrm.expressionManager?.expressions?.map(e => e.expressionName));
     statusEl.textContent = 'ready';
     loadingEl.classList.add('hidden');
-
-    // Show rotation debug panel (tap status to hide/show later)
     rotPanel.classList.add('show');
+
+    // Greeting motion on load
+    setTimeout(() => { startMotion('wave', 1.0); setExpression('happy', 1.0); }, 500);
 
     captureBones();
     animate();
@@ -241,14 +266,12 @@ loader.load(VRM_URL, (gltf) => {
   statusEl.textContent = 'failed';
 });
 
-/* ================= ROTATION DEBUG BUTTONS ================= */
+/* ================= ROTATION DEBUG ================= */
 rotPanel.addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   if (!btn || !vrm) return;
-  const val = btn.dataset.rot;
   const map = { '0': 0, 'pi': Math.PI, 'pi2': Math.PI/2, '-pi2': -Math.PI/2 };
-  vrm.scene.rotation.y = map[val];
-  vrm.scene.updateMatrixWorld(true);
+  vrm.scene.rotation.y = map[btn.dataset.rot];
   [...rotPanel.querySelectorAll('button')].forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   statusEl.textContent = 'rot ' + btn.textContent;
@@ -258,34 +281,89 @@ rotPanel.addEventListener('click', (e) => {
 const bones = {};
 function captureBones() {
   if (!vrm?.humanoid) return;
-  const names = [
-    'hips','spine','chest','upperChest','neck','head',
-    'leftShoulder','rightShoulder',
-    'leftUpperArm','rightUpperArm','leftLowerArm','rightLowerArm',
-    'leftHand','rightHand',
-    'leftUpperLeg','rightUpperLeg','leftLowerLeg','rightLowerLeg'
-  ];
-  for (const n of names) bones[n] = vrm.humanoid.getNormalizedBoneNode(n);
+  ['hips','spine','chest','upperChest','neck','head',
+   'leftShoulder','rightShoulder','leftUpperArm','rightUpperArm',
+   'leftLowerArm','rightLowerArm','leftHand','rightHand',
+   'leftUpperLeg','rightUpperLeg','leftLowerLeg','rightLowerLeg'
+  ].forEach(n => bones[n] = vrm.humanoid.getNormalizedBoneNode(n));
 }
 
-/* ================= EXPRESSIONS ================= */
-const EXPRESSION_MAP = {
-  happy:'happy', joy:'happy', smile:'happy', cheer:'happy',
-  angry:'angry', mad:'angry',
-  sad:'sad', sorrow:'sad',
-  relaxed:'relaxed', calm:'relaxed',
-  surprised:'surprised', fear:'surprised',
-  neutral:'neutral', normal:'neutral'
-};
-const ALL_EXPR = ['happy','angry','sad','relaxed','surprised','neutral'];
+/* ================= EXPRESSIONS (FULL SET) ================= */
+// VRM 1.0 ke sabhi preset expressions
+const ALL_EXPR = [
+  'happy','angry','sad','relaxed','surprised','neutral',
+  'aa','ih','ou','ee','oh',
+  'blinkLeft','blinkRight'
+];
 
-const exprCur = { happy:0, angry:0, sad:0, relaxed:0, surprised:0, neutral:1 };
-const exprTgt = { happy:0, angry:0, sad:0, relaxed:0, surprised:0, neutral:1 };
+// Composite emotions — multiple presets mix karke
+const COMPOSITE = {
+  // Basic
+  neutral:  { neutral: 1 },
+  happy:    { happy: 1 },
+  angry:    { angry: 1 },
+  sad:      { sad: 1 },
+  relaxed:  { relaxed: 1 },
+  surprised:{ surprised: 1 },
+
+  // Extended (mixes)
+  smile:    { happy: 0.6 },
+  grin:     { happy: 0.9, aa: 0.2 },
+  laugh:    { happy: 1, aa: 0.6 },
+  giggle:   { happy: 0.8, ih: 0.4 },
+  smirk:    { relaxed: 0.7, happy: 0.3 },
+  cheer:    { happy: 1, surprised: 0.3, aa: 0.5 },
+
+  cry:      { sad: 1, aa: 0.3 },
+  sob:      { sad: 0.9, oh: 0.5 },
+  sadSmile: { sad: 0.6, happy: 0.3 },
+  pout:     { angry: 0.4, ou: 0.7 },
+  yell:     { angry: 1, aa: 0.9 },
+  determined: { angry: 0.4, neutral: 0.6 },
+
+  think:    { relaxed: 0.5, blinkLeft: 0.3 },
+  confused: { surprised: 0.6, blink: 0.3, ih: 0.3 },
+  worried:  { sad: 0.5, surprised: 0.3 },
+  nervous:  { surprised: 0.4, blink: 0.4 },
+  bored:    { relaxed: 0.5, neutral: 0.5 },
+  sleepy:   { relaxed: 0.7, blink: 0.4 },
+  yawn:     { relaxed: 0.5, aa: 0.9 },
+  relieved: { relaxed: 1, happy: 0.3 },
+
+  excited:  { happy: 1, surprised: 0.4, aa: 0.4 },
+  shock:    { surprised: 1, aa: 0.3 },
+  scared:   { surprised: 1, aa: 0.6, oh: 0.5 },
+  love:     { happy: 0.8, relaxed: 0.3 },
+  blush:    { happy: 0.5, relaxed: 0.4 },
+  kiss:     { happy: 0.4, ou: 0.9 },
+  wink:     { happy: 0.7, blinkLeft: 1.0 },
+  winkR:    { happy: 0.7, blinkRight: 1.0 },
+  cheeky:   { happy: 0.6, ih: 0.4 },
+  proud:    { happy: 0.8, neutral: 0.2 },
+
+  greeting: { happy: 1, aa: 0.3 },
+  farewell: { relaxed: 0.5, happy: 0.5 }
+};
+
+const exprCur = {}; const exprTgt = {};
+for (const n of ALL_EXPR) { exprCur[n] = 0; exprTgt[n] = 0; }
+exprCur.neutral = 1; exprTgt.neutral = 1;
 
 function setExpression(name, weight = 1.0) {
-  const key = EXPRESSION_MAP[name] || 'neutral';
+  const combo = COMPOSITE[name] || COMPOSITE.neutral;
   for (const n of ALL_EXPR) exprTgt[n] = 0;
-  exprTgt[key] = weight;
+  for (const [k, v] of Object.entries(combo)) {
+    if (k in exprTgt) exprTgt[k] = v * weight;
+  }
+}
+
+function updateExpressions(dt) {
+  if (!vrm?.expressionManager) return;
+  const speed = 1 - Math.pow(0.001, dt * 6);
+  for (const n of ALL_EXPR) {
+    exprCur[n] += (exprTgt[n] - exprCur[n]) * speed;
+    try { vrm.expressionManager.setValue(n, exprCur[n]); } catch {}
+  }
 }
 
 /* ================= MOTIONS ================= */
@@ -293,9 +371,11 @@ const MOTIONS = {
   idle:  { dur: 0,   headX:0,     headY:0,    neckX:0,     neckY:0,    spineX:0,     spineZ:0,    lArmX:0,     lArmZ:-1.15, rArmX:0,     rArmZ:1.15 },
   nod:   { dur: 0.7, headX:0.30,  headY:0,    neckX:0.15,  neckY:0,    spineX:0.05,  spineZ:0,    lArmX:0,     lArmZ:-1.15, rArmX:0,     rArmZ:1.15 },
   shake: { dur: 0.8, headX:0,     headY:0.35, neckX:0,     neckY:0.15, spineX:0,     spineZ:0,    lArmX:0,     lArmZ:-1.15, rArmX:0,     rArmZ:1.15 },
-  wave:  { dur: 1.4, headX:0.05,  headY:0.1,  neckX:0.03,  neckY:0.05, spineX:0,     spineZ:0.03, lArmX:-1.5,  lArmZ:-0.35, rArmX:0,     rArmZ:1.15, wave:true },
+  wave:  { dur: 1.5, headX:0.05,  headY:0.1,  neckX:0.03,  neckY:0.05, spineX:0,     spineZ:0.03, lArmX:-1.5,  lArmZ:-0.35, rArmX:0,     rArmZ:1.15, wave:true },
   think: { dur: 1.6, headX:0.15,  headY:0.25, neckX:0.1,   neckY:0.12, spineX:0.05,  spineZ:-0.02,lArmX:-1.65, lArmZ:-0.25, rArmX:0,     rArmZ:1.15 },
-  cheer: { dur: 1.1, headX:-0.12, headY:0,    neckX:-0.06, neckY:0,    spineX:-0.06, spineZ:0,    lArmX:-2.6,  lArmZ:-0.55, rArmX:-2.6,  rArmZ:0.55 }
+  cheer: { dur: 1.2, headX:-0.12, headY:0,    neckX:-0.06, neckY:0,    spineX:-0.06, spineZ:0,    lArmX:-2.6,  lArmZ:-0.55, rArmX:-2.6,  rArmZ:0.55 },
+  laugh: { dur: 1.0, headX:0.20,  headY:0,    neckX:0.1,   neckY:0,    spineX:0.08,  spineZ:0,    lArmX:-0.3,  lArmZ:-1.1,  rArmX:-0.3,  rArmZ:1.1,  bounce:true },
+  bow:   { dur: 1.3, headX:0.4,   headY:0,    neckX:0.2,   neckY:0,    spineX:0.35,  spineZ:0,    lArmX:0.2,   lArmZ:-1.0,  rArmX:0.2,   rArmZ:1.0 }
 };
 
 let motionName = 'idle';
@@ -309,13 +389,9 @@ function startMotion(name, intensity = 1.0) {
 }
 
 /* ================= HELPERS ================= */
-function easeOutBack(t) {
-  const c1 = 1.70158, c3 = c1 + 1;
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-}
-function easeInOut(t) {
-  return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;
-}
+function easeOutBack(t) { const c1 = 1.70158, c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+function easeInOut(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
 /* ================= ANIMATION LOOP ================= */
@@ -326,7 +402,6 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.getElapsedTime();
-
   if (vrm) {
     updateBlink(dt);
     updateExpressions(dt);
@@ -348,15 +423,6 @@ function updateBlink(dt) {
   try { vrm.expressionManager?.setValue('blink', blinkValue); } catch {}
 }
 
-function updateExpressions(dt) {
-  if (!vrm?.expressionManager) return;
-  const speed = 1 - Math.pow(0.001, dt * 6);
-  for (const n of ALL_EXPR) {
-    exprCur[n] += (exprTgt[n] - exprCur[n]) * speed;
-    try { vrm.expressionManager.setValue(n, exprCur[n]); } catch {}
-  }
-}
-
 function updateBody(t, dt) {
   if (!bones.head) return;
   const B = bones;
@@ -366,11 +432,9 @@ function updateBody(t, dt) {
   if (B.chest)  B.chest.rotation.x  = -0.02 + breath * 0.035;
   if (B.spine)  B.spine.rotation.x  = -0.005 + breath * 0.012;
 
-  const swayPhase = t * 0.5;
-  const swayX = Math.sin(swayPhase) * 0.008;
-  const swayZ = Math.cos(swayPhase * 0.7) * 0.012;
+  const swayX = Math.sin(t * 0.5) * 0.008;
+  const swayZ = Math.cos(t * 0.35) * 0.012;
   const bobY  = Math.sin(breathPhase * 2) * 0.004;
-
   if (B.hips) {
     B.hips.position.x = swayX;
     B.hips.position.y = bobY;
@@ -386,20 +450,18 @@ function updateBody(t, dt) {
 
   let env = 0;
   if (m.dur > 0) {
-    const riseT = 0.35;
-    const holdT = m.dur - 0.15;
+    const riseT = 0.35, holdT = m.dur - 0.15;
     if (elapsed < riseT) env = easeOutBack(elapsed / riseT);
     else if (elapsed < holdT) env = 1;
     else if (elapsed < m.dur + 0.5) {
       const k = (elapsed - holdT) / (m.dur + 0.5 - holdT);
       env = 1 - easeInOut(clamp(k, 0, 1));
-    } else {
-      motionName = 'idle';
-      motionStart = performance.now();
-    }
+    } else { motionName = 'idle'; motionStart = performance.now(); }
   }
 
   const envAmp = env * amp;
+  let extraBob = 0;
+  if (m.bounce) extraBob = Math.sin(t * 18) * 0.02 * envAmp;
 
   const tgtHeadX = headIdleX + (m.headX || 0) * envAmp;
   const tgtHeadY = headIdleY + (m.headY || 0) * envAmp;
@@ -412,13 +474,13 @@ function updateBody(t, dt) {
   const tgtRArmX = (m.rArmX || 0) * envAmp;
   const tgtRArmZ = (m.rArmZ ?? 1.15) + Math.sin(breathPhase + 0.3) * 0.01;
 
-  const dampHead  = 1 - Math.pow(0.001, dt * 5);
-  const dampNeck  = 1 - Math.pow(0.001, dt * 6);
+  const dampHead = 1 - Math.pow(0.001, dt * 5);
+  const dampNeck = 1 - Math.pow(0.001, dt * 6);
   const dampSpine = 1 - Math.pow(0.001, dt * 4.5);
-  const dampArm   = 1 - Math.pow(0.001, dt * 7);
+  const dampArm = 1 - Math.pow(0.001, dt * 7);
 
   if (B.head) {
-    B.head.rotation.x += (tgtHeadX - B.head.rotation.x) * dampHead;
+    B.head.rotation.x += (tgtHeadX - B.head.rotation.x + extraBob) * dampHead;
     B.head.rotation.y += (tgtHeadY - B.head.rotation.y) * dampHead;
     const roll = Math.sin(t * 0.6) * 0.01 + (m.headY || 0) * envAmp * 0.08;
     B.head.rotation.z += (roll - B.head.rotation.z) * dampHead;
@@ -451,7 +513,6 @@ function updateBody(t, dt) {
       B.leftHand.rotation.z += (0 - B.leftHand.rotation.z) * (1 - Math.pow(0.001, dt * 5));
     }
   }
-
   if (B.leftLowerArm) {
     const lowerTgt = (m.wave && env > 0.3) ? -0.5 * envAmp : 0;
     B.leftLowerArm.rotation.x += (lowerTgt - B.leftLowerArm.rotation.x) * dampArm;
@@ -461,47 +522,114 @@ function updateBody(t, dt) {
   }
 }
 
-/* ================= AI CHAT ================= */
+/* ================= GEMINI AI ================= */
+const EXPRESSION_LIST = Object.keys(COMPOSITE).join(', ');
+const MOTION_LIST = Object.keys(MOTIONS).join(', ');
+
 const SYSTEM_PROMPT = `
-You are "Lumii", a cheerful anime girl.
-Reply ONLY with valid JSON, no markdown.
+You are "Lumii", a cheerful, expressive anime girl.
+Reply ONLY with valid JSON. No markdown fences. No extra text.
 
 Schema:
 {
-  "reply": string,
-  "expression": "happy"|"angry"|"sad"|"relaxed"|"surprised"|"neutral",
-  "motion": "idle"|"nod"|"shake"|"wave"|"think"|"cheer",
-  "intensity": number (0.3 to 1.4)
+  "reply":      string,                        // 1-2 short sentences in user's language
+  "expression": string,                        // from list below
+  "motion":     string,                        // from list below
+  "intensity":  number                         // 0.3 to 1.4
 }
-Reply in user's language (Hindi / English / Hinglish).
+
+Available expressions (pick the most fitting):
+${EXPRESSION_LIST}
+
+Available motions (pick the most fitting):
+${MOTION_LIST}
+
+Guidelines:
+- Greeting/welcome  → expression: "greeting", motion: "wave"
+- Happy/agreement   → expression: "happy" or "smile", motion: "nod"
+- Funny/laugh       → expression: "laugh" or "giggle", motion: "laugh"
+- Sad             → expression: "sad" or "cry", motion: "idle"
+- Angry           → expression: "angry" or "yell", motion: "shake"
+- Surprised       → expression: "surprised", motion: "idle"
+- Thinking        → expression: "think", motion: "think"
+- Confused        → expression: "confused", motion: "think"
+- Love/affection  → expression: "love" or "blush", motion: "idle"
+- Wink/playful    → expression: "wink", motion: "nod"
+- Confident       → expression: "proud" or "smirk", motion: "cheer"
+- Sad farewell    → expression: "sadSmile", motion: "wave"
+
+Reply in the user's language (Hindi / English / Hinglish).
 `;
 
-const chatHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
+let chatHistory = [];
 
 async function sendToAI(userText) {
-  if (!API_URL) {
-    const canned = [
-      { reply: 'Namaste! Main Lumii hoon 😊', expression: 'happy', motion: 'wave', intensity: 1.1 },
-      { reply: 'Hmm, achha sawaal hai…', expression: 'neutral', motion: 'think', intensity: 0.9 },
-      { reply: 'Haan haan, bilkul sahi!', expression: 'happy', motion: 'nod', intensity: 0.8 },
-      { reply: 'Arre wah! Kya baat hai!', expression: 'surprised', motion: 'cheer', intensity: 1.2 },
-      { reply: 'Achha, samajh gayi!', expression: 'happy', motion: 'nod', intensity: 0.7 }
-    ];
-    await new Promise(r => setTimeout(r, 300));
-    return canned[Math.floor(Math.random() * canned.length)];
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return {
+      reply: '⚙️ Pehle Gemini API key set karo (top-left ⚙️ icon)',
+      expression: 'confused',
+      motion: 'think',
+      intensity: 0.8
+    };
   }
-  chatHistory.push({ role: 'user', content: userText });
-  const res = await fetch(API_URL, {
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const contents = [
+    ...chatHistory.map(h => ({
+      role: h.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: h.content }]
+    })),
+    { role: 'user', parts: [{ text: userText }] }
+  ];
+
+  const body = {
+    systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents,
+    generationConfig: {
+      temperature: 0.95,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          reply:      { type: 'STRING' },
+          expression: { type: 'STRING' },
+          motion:     { type: 'STRING' },
+          intensity:  { type: 'NUMBER' }
+        },
+        required: ['reply', 'expression', 'motion', 'intensity']
+      }
+    },
+    safetySettings: [
+      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' }
+    ]
+  };
+
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: chatHistory })
+    body: JSON.stringify(body)
   });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = err?.error?.message || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+
   const data = await res.json();
-  const raw = data?.reply || data?.choices?.[0]?.message?.content || '{}';
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
   let parsed;
-  try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; }
-  catch { parsed = { reply: raw, expression: 'neutral', motion: 'idle', intensity: 1 }; }
+  try { parsed = JSON.parse(text); }
+  catch { parsed = { reply: text, expression: 'neutral', motion: 'idle', intensity: 1 }; }
+
+  chatHistory.push({ role: 'user', content: userText });
   chatHistory.push({ role: 'assistant', content: JSON.stringify(parsed) });
+  if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+
   return parsed;
 }
 
@@ -514,7 +642,7 @@ async function handleSend() {
   bubble.classList.remove('show');
 
   startMotion('nod', 0.5);
-  setExpression('happy', 0.6);
+  setExpression('think', 0.9);
 
   try {
     const ai = await sendToAI(text);
@@ -522,11 +650,12 @@ async function handleSend() {
     bubble.classList.add('show');
     setExpression(ai.expression || 'neutral', 1.0);
     setTimeout(() => startMotion(ai.motion || 'idle', ai.intensity ?? 1.0), 250);
-    setTimeout(() => setExpression('neutral', 0.8), 4000);
+    setTimeout(() => setExpression('neutral', 0.8), 4500);
   } catch (e) {
     console.error(e);
     bubble.textContent = '⚠️ ' + (e.message || e);
     bubble.classList.add('show');
+    setExpression('sad', 1.0);
   } finally {
     sendBtn.disabled = false;
     statusEl.textContent = 'ready';
