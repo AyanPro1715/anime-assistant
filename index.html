@@ -75,7 +75,6 @@
 </head>
 <body>
 
-  <!-- Loading screen -->
   <div id="loading">
     <div class="title">🎀 AI VRM Chat</div>
     <div id="progressBar"><div id="progressFill"></div></div>
@@ -96,7 +95,7 @@
   "imports": {
     "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
     "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-    "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@3.0.0/lib/three-vrm.module.js"
+    "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@3.2.0/lib/three-vrm.module.js"
   }
 }
 </script>
@@ -107,7 +106,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 /* ================= CONFIG ================= */
-const VRM_URL = './character.vrm?v=2';   // cache bust
+const VRM_URL = './character.vrm?v=3';   // cache bust
 const API_URL = '';                       // apna backend URL yahan
 const API_KEY = '';                       // browser me kabhi mat daalo public repo me!
 
@@ -165,9 +164,16 @@ loader.load(
       vrm = gltf.userData.vrm;
       if (!vrm) throw new Error('VRM data missing in GLTF');
 
-      VRMUtils.removeUnnecessaryVertices(gltf.scene);
-      VRMUtils.combineSkeletons(gltf.scene);
-      if (VRMUtils.combineMorphs) VRMUtils.combineMorphs(vrm);
+      // Safe calls — function exist kare tab hi chalao
+      if (VRMUtils.removeUnnecessaryVertices) {
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+      }
+      if (VRMUtils.combineSkeletons) {
+        VRMUtils.combineSkeletons(gltf.scene);
+      }
+      if (VRMUtils.combineMorphs) {
+        VRMUtils.combineMorphs(vrm);
+      }
 
       vrm.scene.rotation.y = Math.PI;
       vrm.scene.position.set(0, 0, 0);
@@ -328,7 +334,7 @@ const chatHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
 
 async function sendToAI(userText) {
   if (!API_URL) {
-    // Demo mode: no API — just local canned reply so you can test motions
+    // Demo mode: no API — local canned reply so you can test motions
     const canned = [
       { reply: 'Namaste! Main Lumii hoon 😊', expression: 'happy', motion: 'wave', intensity: 1.1 },
       { reply: 'Hmm, achha sawaal hai…', expression: 'neutral', motion: 'think', intensity: 0.9 },
