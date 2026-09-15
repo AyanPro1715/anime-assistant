@@ -1,40 +1,348 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <script type="module" src="https://cdnjs.cloudflare.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background: transparent;
-      overflow: hidden;
-    }
-    model-viewer {
-      width: 100%;
-      height: 100%;
-      background-color: transparent;
-      --poster-color: transparent;
-    }
-  </style>
+<meta charset="utf-8" />
+<title>AI VRM Chat</title>
+<style>
+  html,body { margin:0; height:100%; background:#1a1a2e; overflow:hidden; font-family:system-ui,sans-serif; }
+  canvas { display:block; }
+  #chatBox {
+    position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
+    width:min(680px, 92vw); display:flex; gap:10px; z-index:10;
+  }
+  #userInput {
+    flex:1; padding:14px 18px; border-radius:30px; border:none; outline:none;
+    background:#ffffff18; color:#fff; font-size:15px; backdrop-filter:blur(8px);
+  }
+  #userInput::placeholder { color:#ffffff70; }
+  #sendBtn {
+    padding:14px 24px; border-radius:30px; border:none; cursor:pointer;
+    background:#ff6b9d; color:#fff; font-weight:600; font-size:15px;
+  }
+  #sendBtn:disabled { opacity:.5; cursor:not-allowed; }
+  #bubble {
+    position:fixed; top:24px; left:50%; transform:translateX(-50%);
+    max-width:min(560px,90vw); padding:16px 22px; border-radius:18px;
+    background:#ffffff18; color:#fff; font-size:16px; line-height:1.4;
+    backdrop-filter:blur(10px); opacity:0; transition:opacity .3s;
+    border-left:3px solid #ff6b9d;
+  }
+  #bubble.show { opacity:1; }
+  #status { position:fixed; top:8px; right:12px; color:#fff8; font-size:12px; }
+</style>
 </head>
 <body>
-  <model-viewer
-    id="character"
-    src="character.glb"
-    camera-controls
-    auto-rotate
-    auto-rotate-delay="0"
-    rotation-per-second="10deg"
-    camera-orbit="0deg 80deg 3m"
-    field-of-view="30deg"
-    shadow-intensity="0"
-    exposure="1"
-    interaction-prompt="none"
-    disable-zoom>
-  </model-viewer>
+  <div id="bubble"></div>
+  <div id="status">loading…</div>
+  <div id="chatBox">
+    <input id="userInput" placeholder="Type in Hindi or English…" autocomplete="off"/>
+    <button id="sendBtn">Send</button>
+  </div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@3.0.0/lib/three-vrm.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+/* ============ ⚙️ CONFIG ============ */
+const VRM_URL   = 'character.vrm';           // <-- apni VRM file ka path
+const API_URL   = 'https://api.openai.com/v1/chat/completions'; // ya apna backend
+const API_KEY   = 'sk-...';                  // ⚠️ production me backend proxy use karo
+const MODEL     = 'gpt-4o-mini';             // ya 'gemini-1.5-flash' etc.
+
+/* ============ 🎬 SCENE SETUP ============ */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(30, innerWidth/innerHeight, 0.1, 20);
+camera.position.set(0, 1.35, 1.7);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+const key = new THREE.DirectionalLight(0xffffff, 1.5);
+key.position.set(1, 2, 2);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x88aaff, 0.6);
+rim.position.set(-2, 1, -1);
+scene.add(rim);
+
+/* ============ 🧍 LOAD VRM ============ */
+let vrm = null;
+let clock = new THREE.Clock();
+
+new GLTFLoader().register(parser => new VRMLoaderPlugin(parser))
+  .load(VRM_URL, gltf => {
+    vrm = gltf.userData.vrm;
+    VRMUtils.removeUnnecessaryVertices(gltf.scene);
+    VRMUtils.combineSkeletons(gltf.scene);
+    VRMUtils.combineMorphs(vrm);
+    vrm.scene.rotation.y = Math.PI;   // face camera
+    scene.add(vrm.scene);
+    document.getElementById('status').textContent = 'VRM ready';
+    animate();
+  }, undefined, err => {
+    console.error(err);
+    document.getElementById('status').textContent = 'VRM load failed';
+  });
+
+/* ============ 😀 EXPRESSION ============ */
+// Ye model ki available expressions (VRMC_vrm se):
+// happy, angry, sad, relaxed, surprised, aa, ih, ou, ee, oh,
+// blink, blinkLeft, blinkRight, neutral
+const EXPRESSION_MAP = {
+  happy:    'happy',
+  angry:    'angry',
+  sad:      'sad',
+  relaxed:  'relaxed',
+  surprised:'surprised',
+  neutral:  'neutral',
+  // aliases (AI kabhi kabhi aise bol sakta hai)
+  joy:      'happy',
+  smile:    'happy',
+  fear:     'surprised',
+  calm:     'relaxed',
+  normal:   'neutral'
+};
+
+let currentExpression = 'neutral';
+let expressionWeight  = 1.0;
+
+function setExpression(name, weight = 1.0) {
+  const key = EXPRESSION_MAP[name] || 'neutral';
+  currentExpression = key;
+  expressionWeight  = weight;
+  // reset all, then set new
+  if (!vrm?.expressionManager) return;
+  const em = vrm.expressionManager;
+  for (const n of ['happy','angry','sad','relaxed','surprised','neutral']) {
+    em.setValue(n, 0);
+  }
+  em.setValue(key, weight);
+}
+
+/* ============ 🕺 PROCEDURAL BODY MOTIONS ============ */
+// Simple keyframe-less motions: har motion ka "target pose" hota hai
+// jo animation loop me smoothly lerp hota hai.
+
+const MOTIONS = {
+  idle:  { head:{x:0,y:0}, neck:{x:0,y:0}, spine:{x:0}, lArm:{x:0,z:-1.2}, rArm:{x:0,z:1.2}, duration:0 },
+  nod:   { head:{x:0.25,y:0}, neck:{x:0.15,y:0}, spine:{x:0}, lArm:{x:0,z:-1.2}, rArm:{x:0,z:1.2}, duration:0.7 },
+  shake: { head:{x:0,y:0.35}, neck:{x:0,y:0.15}, spine:{x:0}, lArm:{x:0,z:-1.2}, rArm:{x:0,z:1.2}, duration:0.7 },
+  wave:  { head:{x:0.1,y:0.1}, neck:{x:0.05,y:0.05}, spine:{x:0}, lArm:{x:-1.4,z:-0.4}, rArm:{x:0,z:1.2}, duration:1.2, waveHand:true },
+  think: { head:{x:0.15,y:0.2}, neck:{x:0.1,y:0.1}, spine:{x:0.05}, lArm:{x:-1.6,z:-0.3}, rArm:{x:0,z:1.2}, duration:1.5 },
+  cheer: { head:{x:-0.1,y:0}, neck:{x:-0.05,y:0}, spine:{x:-0.05}, lArm:{x:-2.5,z:-0.5}, rArm:{x:-2.5,z:0.5}, duration:1.0 }
+};
+
+let activeMotion = null;
+let motionStart  = 0;
+let motionName   = 'idle';
+let motionIntensity = 1.0;
+
+function startMotion(name, intensity = 1.0) {
+  const key = MOTIONS[name] ? name : 'idle';
+  motionName = key;
+  motionIntensity = Math.max(0.3, Math.min(1.5, intensity));
+  motionStart = performance.now();
+  activeMotion = { ...MOTIONS[key] };
+}
+
+/* ============ 🔁 ANIMATION LOOP ============ */
+let blinkTimer = 0, blinkState = 'open', blinkNext = 2 + Math.random()*3;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  const t  = clock.getElapsedTime();
+
+  if (vrm) {
+    // 1. Blink
+    blinkTimer += dt;
+    if (blinkState === 'open' && blinkTimer > blinkNext) {
+      blinkState = 'closing'; blinkTimer = 0;
+    }
+    if (blinkState === 'closing' && blinkTimer > 0.08) { blinkState = 'opening'; blinkTimer = 0; }
+    if (blinkState === 'opening' && blinkTimer > 0.08) {
+      blinkState = 'open'; blinkTimer = 0; blinkNext = 2 + Math.random()*3;
+    }
+    const blinkVal = blinkState==='closing' ? 1
+                    : blinkState==='opening' ? 0
+                    : 0;
+    vrm.expressionManager.setValue('blink', blinkVal);
+
+    // 2. Idle breathing
+    const breath = Math.sin(t * 1.5) * 0.01;
+    const chest = vrm.humanoid.getNormalizedBoneNode('chest');
+    if (chest) chest.rotation.x = breath;
+
+    // 3. Motion (procedural)
+    applyMotion(t, dt);
+
+    // 4. Update
+    vrm.update(dt);
+  }
+  renderer.render(scene, camera);
+}
+
+function applyMotion(t, dt) {
+  const h = vrm.humanoid;
+  const head  = h.getNormalizedBoneNode('head');
+  const neck  = h.getNormalizedBoneNode('neck');
+  const spine = h.getNormalizedBoneNode('spine');
+  const lArm  = h.getNormalizedBoneNode('leftUpperArm');
+  const rArm  = h.getNormalizedBoneNode('rightUpperArm');
+  const lHand = h.getNormalizedBoneNode('leftHand');
+  const rHand = h.getNormalizedBoneNode('rightHand');
+
+  const elapsed = (performance.now() - motionStart) / 1000;
+  const m = MOTIONS[motionName] || MOTIONS.idle;
+  const dur = m.duration;
+  const k = dur === 0 ? 1 : Math.min(1, elapsed / dur);
+  const ease = k * k * (3 - 2 * k);           // smoothstep
+  const amp = motionIntensity;
+
+  // Target rotations (pehle idle, phir motion)
+  const tgt = {
+    head:  { x: (m.head?.x || 0)  * amp, y: (m.head?.y  || 0) * amp },
+    neck:  { x: (m.neck?.x || 0)  * amp, y: (m.neck?.y  || 0) * amp },
+    spine: { x: (m.spine?.x|| 0)  * amp },
+    lArm:  { x: (m.lArm?.x  || 0) * amp, z: (m.lArm?.z  ?? -1.2) },
+    rArm:  { x: (m.rArm?.x  || 0) * amp, z: (m.rArm?.z  ??  1.2) }
+  };
+
+  // Agar motion khatam ho gayi to idle pe wapas
+  if (dur > 0 && elapsed > dur + 0.3) {
+    motionName = 'idle';
+    motionStart = performance.now();
+  }
+
+  const lerp = 1 - Math.pow(0.001, dt * 6);
+  if (head)  { head.rotation.x  += (tgt.head.x  - head.rotation.x ) * lerp;
+               head.rotation.y  += (tgt.head.y  - head.rotation.y ) * lerp; }
+  if (neck)  { neck.rotation.x  += (tgt.neck.x  - neck.rotation.x ) * lerp;
+               neck.rotation.y  += (tgt.neck.y  - neck.rotation.y ) * lerp; }
+  if (spine) { spine.rotation.x += (tgt.spine.x - spine.rotation.x) * lerp; }
+  if (lArm)  { lArm.rotation.x  += (tgt.lArm.x  - lArm.rotation.x ) * lerp;
+               lArm.rotation.z  += (tgt.lArm.z  - lArm.rotation.z ) * lerp; }
+  if (rArm)  { rArm.rotation.x  += (tgt.rArm.x  - rArm.rotation.x ) * lerp;
+               rArm.rotation.z  += (tgt.rArm.z  - rArm.rotation.z ) * lerp; }
+
+  // Hand wave animation
+  if (m.waveHand && lHand) {
+    lHand.rotation.z = Math.sin(t * 20) * 0.5;
+  }
+}
+
+/* ============ 💬 AI CHAT ============ */
+const SYSTEM_PROMPT = `
+You are "Lumii", a cheerful anime girl character.
+Always reply with **valid JSON only** — no markdown, no code fences, no extra words.
+
+Schema:
+{
+  "reply":      string,                 // 1-2 short sentences, user's language (Hindi/English/Hinglish)
+  "expression": "happy"|"angry"|"sad"|"relaxed"|"surprised"|"neutral",
+  "motion":     "idle"|"nod"|"shake"|"wave"|"think"|"cheer",
+  "intensity":  number                  // 0.3 to 1.5
+}
+
+Guidelines:
+- Greeting      → expression:"happy",    motion:"wave",  intensity:1.0
+- Question      → expression:"neutral",  motion:"think", intensity:0.9
+- Agreement     → expression:"happy",    motion:"nod",   intensity:0.8
+- Disagreement  → expression:"angry",    motion:"shake", intensity:0.8
+- Sad news      → expression:"sad",      motion:"idle",  intensity:0.9
+- Surprise      → expression:"surprised",motion:"idle",  intensity:1.0
+- Celebration   → expression:"happy",    motion:"cheer", intensity:1.2
+`;
+
+const chatHistory = [{ role:'system', content: SYSTEM_PROMPT }];
+
+const input   = document.getElementById('userInput');
+const sendBtn = document.getElementById('sendBtn');
+const bubble  = document.getElementById('bubble');
+const status  = document.getElementById('status');
+
+async function sendToAI(userText) {
+  chatHistory.push({ role:'user', content: userText });
+  const res = await fetch(API_URL, {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'Authorization': `Bearer ${API_KEY}`
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: chatHistory,
+      response_format: { type:'json_object' },
+      temperature: 0.8
+    })
+  });
+  const data = await res.json();
+  const raw = data.choices?.[0]?.message?.content || '{}';
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch { parsed = { reply: raw, expression:'neutral', motion:'idle', intensity:1 }; }
+  chatHistory.push({ role:'assistant', content: raw });
+  return parsed;
+}
+
+async function handleSend() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  sendBtn.disabled = true;
+  status.textContent = 'thinking…';
+  bubble.classList.remove('show');
+
+  try {
+    const ai = await sendToAI(text);
+
+    // Reply text
+    bubble.textContent = ai.reply || '…';
+    bubble.classList.add('show');
+
+    // Expression
+    setExpression(ai.expression || 'neutral', 1.0);
+
+    // Body motion
+    startMotion(ai.motion || 'idle', ai.intensity ?? 1.0);
+
+    // Auto-clear expression after 4s, motion after its duration
+    setTimeout(() => setExpression('neutral', 1.0), 4000);
+  } catch (e) {
+    console.error(e);
+    bubble.textContent = '⚠️ AI error: ' + e.message;
+    bubble.classList.add('show');
+  } finally {
+    sendBtn.disabled = false;
+    status.textContent = 'ready';
+  }
+}
+
+sendBtn.addEventListener('click', handleSend);
+input.addEventListener('keydown', e => { if (e.key === 'Enter') handleSend(); });
+
+/* ============ 🪟 RESIZE ============ */
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
 </body>
-</html>
+  </html>
