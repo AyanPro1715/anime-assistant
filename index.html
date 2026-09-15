@@ -28,6 +28,21 @@
     font-size: 12px; color: #ffaaaa; max-width: 90vw; word-break: break-word;
     text-align: left; font-family: monospace;
   }
+
+  /* Rotation control panel */
+  #rotPanel {
+    position: fixed; top: max(40px, calc(env(safe-area-inset-top) + 30px)); right: 10px;
+    background: #00000066; border-radius: 10px; padding: 8px; z-index: 50;
+    display: none; gap: 6px; flex-direction: column;
+  }
+  #rotPanel.show { display: flex; }
+  #rotPanel button {
+    padding: 8px 12px; border-radius: 8px; border: none;
+    background: #ffffff22; color: #fff; font-size: 12px; cursor: pointer;
+    font-family: monospace;
+  }
+  #rotPanel button.active { background: #ff6b9d; }
+
   #bubble {
     position: fixed; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
     max-width: min(560px, 90vw); padding: 14px 20px; border-radius: 18px;
@@ -68,6 +83,14 @@
     <div id="errorBox"></div>
   </div>
 
+  <!-- Rotation debug panel -->
+  <div id="rotPanel">
+    <button data-rot="0">0°</button>
+    <button data-rot="pi">180°</button>
+    <button data-rot="pi2">90°</button>
+    <button data-rot="-pi2">-90°</button>
+  </div>
+
   <div id="bubble"></div>
   <div id="status">init…</div>
 
@@ -92,9 +115,10 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 /* ================= CONFIG ================= */
-const VRM_URL = './character.vrm?v=5';
+const VRM_URL = './character.vrm?v=6';
 const API_URL = '';
 const API_KEY = '';
+const ROTATION = 0;   // 0, Math.PI, Math.PI/2, -Math.PI/2 — debug panel se change kar sakte ho
 
 /* ================= DOM ================= */
 const loadingEl = document.getElementById('loading');
@@ -105,6 +129,7 @@ const statusEl  = document.getElementById('status');
 const bubble    = document.getElementById('bubble');
 const input     = document.getElementById('userInput');
 const sendBtn   = document.getElementById('sendBtn');
+const rotPanel  = document.getElementById('rotPanel');
 
 function showError(msg) {
   errorBox.style.display = 'block';
@@ -116,8 +141,10 @@ function showError(msg) {
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a2e);
 
-const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 20);
-camera.position.set(0, 1.35, 1.65);
+const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.01, 50);
+// Camera position temporary — model load hone ke baad auto-adjust karengi
+camera.position.set(0, 1.4, 2);
+camera.lookAt(0, 1.3, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setSize(innerWidth, innerHeight);
@@ -125,13 +152,17 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
-scene.add(new THREE.AmbientLight(0xffffff, 1.2));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
-keyLight.position.set(1, 2, 2);
+// Lights (intense taaki model clearly dikhe)
+scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+keyLight.position.set(1, 3, 2);
 scene.add(keyLight);
-const rimLight = new THREE.DirectionalLight(0x88aaff, 0.6);
-rimLight.position.set(-2, 1, -1);
+const rimLight = new THREE.DirectionalLight(0x88aaff, 1.0);
+rimLight.position.set(-2, 2, -1);
 scene.add(rimLight);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
+fillLight.position.set(0, 1, 3);
+scene.add(fillLight);
 
 /* ================= VRM LOAD ================= */
 let vrm = null;
@@ -143,14 +174,52 @@ loader.load(VRM_URL, (gltf) => {
   try {
     vrm = gltf.userData.vrm;
     if (!vrm) throw new Error('VRM data missing');
+
     if (VRMUtils.removeUnnecessaryVertices) VRMUtils.removeUnnecessaryVertices(gltf.scene);
     if (VRMUtils.combineSkeletons) VRMUtils.combineSkeletons(gltf.scene);
     if (VRMUtils.combineMorphs) VRMUtils.combineMorphs(vrm);
-    vrm.scene.rotation.y = 0;   // ✅ FACE FIX — camera ki taraf face
+
+    vrm.scene.rotation.y = ROTATION;
     vrm.scene.position.set(0, 0, 0);
+
+    // ✅ AUTO-FRAMING: model ka actual size compute karo
     scene.add(vrm.scene);
+    vrm.scene.updateMatrixWorld(true);
+
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    console.log('VRM bounds:', { min: box.min, max: box.max, size, center });
+
+    // Model ko floor pe rakho aur center karo
+    vrm.scene.position.x = -center.x;
+    vrm.scene.position.z = -center.z;
+    vrm.scene.position.y = -box.min.y;
+
+    // Camera ko model ke size ke hisaab se adjust karo
+    const height = size.y || 1.5;
+    const fovRad = (camera.fov * Math.PI) / 180;
+    const distance = (height * 1.1) / (2 * Math.tan(fovRad / 2));
+
+    camera.position.set(0, height * 0.75, distance);
+    camera.lookAt(0, height * 0.62, 0);
+
+    // Vary FOV if portrait/landscape
+    if (innerWidth < innerHeight) {
+      // mobile portrait — pull camera back a bit
+      camera.position.z *= 1.15;
+    }
+    camera.updateProjectionMatrix();
+
     statusEl.textContent = 'ready';
     loadingEl.classList.add('hidden');
+
+    // Show rotation debug panel (tap status to hide/show later)
+    rotPanel.classList.add('show');
+
     captureBones();
     animate();
   } catch (e) {
@@ -170,6 +239,19 @@ loader.load(VRM_URL, (gltf) => {
   console.error(err);
   showError(err?.message || String(err));
   statusEl.textContent = 'failed';
+});
+
+/* ================= ROTATION DEBUG BUTTONS ================= */
+rotPanel.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || !vrm) return;
+  const val = btn.dataset.rot;
+  const map = { '0': 0, 'pi': Math.PI, 'pi2': Math.PI/2, '-pi2': -Math.PI/2 };
+  vrm.scene.rotation.y = map[val];
+  vrm.scene.updateMatrixWorld(true);
+  [...rotPanel.querySelectorAll('button')].forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  statusEl.textContent = 'rot ' + btn.textContent;
 });
 
 /* ================= BONE CACHE ================= */
@@ -279,13 +361,11 @@ function updateBody(t, dt) {
   if (!bones.head) return;
   const B = bones;
 
-  /* 1. BREATHING */
   const breathPhase = t * 1.6;
   const breath = Math.sin(breathPhase) * 0.5 + 0.5;
   if (B.chest)  B.chest.rotation.x  = -0.02 + breath * 0.035;
   if (B.spine)  B.spine.rotation.x  = -0.005 + breath * 0.012;
 
-  /* 2. WEIGHT SHIFT + SWAY */
   const swayPhase = t * 0.5;
   const swayX = Math.sin(swayPhase) * 0.008;
   const swayZ = Math.cos(swayPhase * 0.7) * 0.012;
@@ -297,11 +377,9 @@ function updateBody(t, dt) {
     B.hips.rotation.z = swayZ;
   }
 
-  /* 3. HEAD MICRO-MOTION */
   const headIdleX = Math.sin(t * 0.9) * 0.015 + Math.sin(t * 2.3) * 0.006;
   const headIdleY = Math.cos(t * 0.7) * 0.02 + Math.sin(t * 1.9) * 0.008;
 
-  /* 4. MOTION POSE */
   const elapsed = (performance.now() - motionStart) / 1000;
   const m = MOTIONS[motionName] || MOTIONS.idle;
   const amp = motionIntensity;
@@ -334,7 +412,6 @@ function updateBody(t, dt) {
   const tgtRArmX = (m.rArmX || 0) * envAmp;
   const tgtRArmZ = (m.rArmZ ?? 1.15) + Math.sin(breathPhase + 0.3) * 0.01;
 
-  /* 5. APPLY with damping */
   const dampHead  = 1 - Math.pow(0.001, dt * 5);
   const dampNeck  = 1 - Math.pow(0.001, dt * 6);
   const dampSpine = 1 - Math.pow(0.001, dt * 4.5);
@@ -366,7 +443,6 @@ function updateBody(t, dt) {
     B.rightUpperArm.rotation.z += (tgtRArmZ - B.rightUpperArm.rotation.z) * dampArm;
   }
 
-  /* 6. WAVE HAND */
   if (B.leftHand) {
     if (m.wave && env > 0.3) {
       const wave = Math.sin(t * 14) * 0.7 * envAmp;
