@@ -23,7 +23,6 @@
     font-size: 12px; color: #ffaaaa; max-width: 90vw; word-break: break-word;
     text-align: left; font-family: monospace; }
 
-  /* Settings panel */
   #settingsBtn { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 10px;
     width: 36px; height: 36px; border-radius: 50%; background: #ffffff22;
     border: none; color: #fff; font-size: 18px; cursor: pointer; z-index: 60;
@@ -47,14 +46,6 @@
   #cancelKeyBtn { background: #ffffff22; color: #fff; }
   #keyStatus { font-size: 11px; margin-top: 10px; color: #8f8; font-family: monospace; }
 
-  #rotPanel { position: fixed; top: max(50px, calc(env(safe-area-inset-top) + 40px)); right: 10px;
-    background: #00000066; border-radius: 10px; padding: 8px; z-index: 50;
-    display: none; gap: 6px; flex-direction: column; }
-  #rotPanel.show { display: flex; }
-  #rotPanel button { padding: 8px 12px; border-radius: 8px; border: none;
-    background: #ffffff22; color: #fff; font-size: 12px; cursor: pointer; font-family: monospace; }
-  #rotPanel button.active { background: #ff6b9d; }
-
   #bubble { position: fixed; top: max(60px, calc(env(safe-area-inset-top) + 50px)); left: 50%;
     transform: translateX(-50%); max-width: min(560px, 88vw); padding: 14px 20px; border-radius: 18px;
     background: #ffffff22; color: #fff; font-size: 15px; line-height: 1.4;
@@ -62,6 +53,11 @@
     border-left: 3px solid #ff6b9d; opacity: 0; transition: opacity .3s;
     pointer-events: none; z-index: 20; }
   #bubble.show { opacity: 1; }
+
+  #hint { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: #ffffff60; z-index: 15; pointer-events: none;
+    background: #00000040; padding: 4px 12px; border-radius: 12px; }
+  #hint.hide { opacity: 0; transition: opacity .8s; }
 
   #chatBox { position: fixed; left: 50%; transform: translateX(-50%);
     bottom: max(16px, env(safe-area-inset-bottom));
@@ -101,15 +97,9 @@
     </div>
   </div>
 
-  <div id="rotPanel">
-    <button data-rot="0">0°</button>
-    <button data-rot="pi">180°</button>
-    <button data-rot="pi2">90°</button>
-    <button data-rot="-pi2">-90°</button>
-  </div>
-
   <div id="bubble"></div>
   <div id="status">init…</div>
+  <div id="hint">💡 Model ko drag karke ghumao · pinch se zoom</div>
 
   <div id="chatBox">
     <input id="userInput" placeholder="Type hello…" autocomplete="off" />
@@ -129,10 +119,11 @@
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 /* ================= CONFIG ================= */
-const VRM_URL = './character.vrm?v=7';
+const VRM_URL = './character.vrm?v=8';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
 /* ================= DOM ================= */
@@ -144,13 +135,13 @@ const statusEl  = document.getElementById('status');
 const bubble    = document.getElementById('bubble');
 const input     = document.getElementById('userInput');
 const sendBtn   = document.getElementById('sendBtn');
-const rotPanel  = document.getElementById('rotPanel');
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsPanel = document.getElementById('settingsPanel');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const saveKeyBtn = document.getElementById('saveKeyBtn');
 const cancelKeyBtn = document.getElementById('cancelKeyBtn');
 const keyStatus = document.getElementById('keyStatus');
+const hintEl = document.getElementById('hint');
 
 function showError(msg) {
   errorBox.style.display = 'block';
@@ -160,8 +151,8 @@ function showError(msg) {
 
 /* ================= SETTINGS ================= */
 const KEY_STORAGE = 'gemini_api_key_v1';
-function getApiKey() { return localStorage.getItem(KEY_STORAGE) || ''; }
-function setApiKey(k) { k ? localStorage.setItem(KEY_STORAGE, k) : localStorage.removeItem(KEY_STORAGE); }
+const getApiKey = () => localStorage.getItem(KEY_STORAGE) || '';
+const setApiKey = (k) => { k ? localStorage.setItem(KEY_STORAGE, k) : localStorage.removeItem(KEY_STORAGE); };
 
 settingsBtn.addEventListener('click', () => {
   apiKeyInput.value = getApiKey();
@@ -170,10 +161,9 @@ settingsBtn.addEventListener('click', () => {
 });
 cancelKeyBtn.addEventListener('click', () => settingsPanel.classList.remove('show'));
 saveKeyBtn.addEventListener('click', () => {
-  const k = apiKeyInput.value.trim();
-  setApiKey(k);
-  keyStatus.textContent = k ? '✅ Saved!' : '🗑️ Cleared';
-  setTimeout(() => settingsPanel.classList.remove('show'), 700);
+  setApiKey(apiKeyInput.value.trim());
+  keyStatus.textContent = apiKeyInput.value.trim() ? '✅ Saved!' : '🗑️ Cleared';
+  setTimeout(() => settingsPanel.classList.remove('show'), 600);
 });
 
 /* ================= SCENE ================= */
@@ -181,14 +171,23 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a2e);
 
 const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.01, 50);
-camera.position.set(0, 1.4, 2);
-camera.lookAt(0, 1.3, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
+
+// ✅ OrbitControls — user drag karke ghumaa sakta hai
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enablePan = false;
+controls.enableZoom = true;
+controls.minPolarAngle = 0.3;
+controls.maxPolarAngle = Math.PI * 0.72;
+controls.rotateSpeed = 0.6;
+controls.zoomSpeed = 0.8;
 
 scene.add(new THREE.AmbientLight(0xffffff, 1.5));
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
@@ -221,31 +220,39 @@ loader.load(VRM_URL, (gltf) => {
     const box = new THREE.Box3().setFromObject(vrm.scene);
     const size = new THREE.Vector3(); const center = new THREE.Vector3();
     box.getSize(size); box.getCenter(center);
-    console.log('VRM bounds:', box, size);
 
-    // ✅ MODEL THODA UPAR — offset +0.08
+    // ✅ Model floor pe + thoda upar
     vrm.scene.position.x = -center.x;
     vrm.scene.position.z = -center.z;
-    vrm.scene.position.y = -box.min.y + 0.08;
+    vrm.scene.position.y = -box.min.y + 0.12;
 
-    const height = size.y || 1.5;
-    const fovRad = (camera.fov * Math.PI) / 180;
-    let distance = (height * 1.15) / (2 * Math.tan(fovRad / 2));
-    if (innerWidth < innerHeight) distance *= 1.2;
+    const h = size.y || 1.6;
 
-    camera.position.set(0, height * 0.80, distance);
-    camera.lookAt(0, height * 0.68, 0);   // ✅ camera upar dekhegi
+    // ✅ CAMERA FRAMING — face clearly dikhe, model screen pe upar
+    const lookY = h * 0.72;              // chest/upper area ko center dekho → face upper part me
+    const camY = h * 0.78;
+    const camZ = h * 0.95;               // paas me — face clear
+    camera.position.set(0, camY, camZ);
+    camera.lookAt(0, lookY, 0);
+    if (innerWidth < innerHeight) camera.position.z *= 1.12;
     camera.updateProjectionMatrix();
 
-    console.log('Available expressions:', vrm.expressionManager?.expressions?.map(e => e.expressionName));
+    // ✅ OrbitControls set — isi point ke around ghumega
+    controls.target.set(0, lookY, 0);
+    controls.minDistance = h * 0.5;
+    controls.maxDistance = h * 2.2;
+    controls.update();
+
     statusEl.textContent = 'ready';
     loadingEl.classList.add('hidden');
-    rotPanel.classList.add('show');
-
-    // Greeting motion on load
-    setTimeout(() => { startMotion('wave', 1.0); setExpression('happy', 1.0); }, 500);
-
     captureBones();
+
+    // Greeting on load
+    setTimeout(() => { startMotion('wave', 1.0); setExpression('greeting', 1.0); }, 400);
+
+    // Hint ko 5 sec baad hide
+    setTimeout(() => hintEl.classList.add('hide'), 5000);
+
     animate();
   } catch (e) {
     console.error(e);
@@ -266,84 +273,89 @@ loader.load(VRM_URL, (gltf) => {
   statusEl.textContent = 'failed';
 });
 
-/* ================= ROTATION DEBUG ================= */
-rotPanel.addEventListener('click', (e) => {
-  const btn = e.target.closest('button');
-  if (!btn || !vrm) return;
-  const map = { '0': 0, 'pi': Math.PI, 'pi2': Math.PI/2, '-pi2': -Math.PI/2 };
-  vrm.scene.rotation.y = map[btn.dataset.rot];
-  [...rotPanel.querySelectorAll('button')].forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  statusEl.textContent = 'rot ' + btn.textContent;
-});
-
 /* ================= BONE CACHE ================= */
 const bones = {};
 function captureBones() {
   if (!vrm?.humanoid) return;
   ['hips','spine','chest','upperChest','neck','head',
-   'leftShoulder','rightShoulder','leftUpperArm','rightUpperArm',
-   'leftLowerArm','rightLowerArm','leftHand','rightHand',
+   'leftShoulder','rightShoulder',
+   'leftUpperArm','rightUpperArm',
+   'leftLowerArm','rightLowerArm',
+   'leftHand','rightHand',
    'leftUpperLeg','rightUpperLeg','leftLowerLeg','rightLowerLeg'
   ].forEach(n => bones[n] = vrm.humanoid.getNormalizedBoneNode(n));
+  console.log('Bones captured:', Object.keys(bones).filter(k => bones[k]));
 }
 
-/* ================= EXPRESSIONS (FULL SET) ================= */
-// VRM 1.0 ke sabhi preset expressions
+/* ================= EXPRESSIONS (FULL) ================= */
 const ALL_EXPR = [
   'happy','angry','sad','relaxed','surprised','neutral',
   'aa','ih','ou','ee','oh',
   'blinkLeft','blinkRight'
 ];
 
-// Composite emotions — multiple presets mix karke
 const COMPOSITE = {
   // Basic
-  neutral:  { neutral: 1 },
-  happy:    { happy: 1 },
-  angry:    { angry: 1 },
-  sad:      { sad: 1 },
-  relaxed:  { relaxed: 1 },
-  surprised:{ surprised: 1 },
+  neutral:   { neutral: 1 },
+  happy:     { happy: 1 },
+  angry:     { angry: 1 },
+  sad:       { sad: 1 },
+  relaxed:   { relaxed: 1 },
+  surprised: { surprised: 1 },
 
-  // Extended (mixes)
-  smile:    { happy: 0.6 },
-  grin:     { happy: 0.9, aa: 0.2 },
-  laugh:    { happy: 1, aa: 0.6 },
-  giggle:   { happy: 0.8, ih: 0.4 },
-  smirk:    { relaxed: 0.7, happy: 0.3 },
-  cheer:    { happy: 1, surprised: 0.3, aa: 0.5 },
+  // Smiles
+  smile:     { happy: 0.6 },
+  grin:      { happy: 0.9, aa: 0.2 },
+  laugh:     { happy: 1, aa: 0.6 },
+  giggle:    { happy: 0.8, ih: 0.4 },
+  smirk:     { relaxed: 0.7, happy: 0.3 },
+  cheer:     { happy: 1, surprised: 0.3, aa: 0.5 },
 
-  cry:      { sad: 1, aa: 0.3 },
-  sob:      { sad: 0.9, oh: 0.5 },
-  sadSmile: { sad: 0.6, happy: 0.3 },
-  pout:     { angry: 0.4, ou: 0.7 },
-  yell:     { angry: 1, aa: 0.9 },
-  determined: { angry: 0.4, neutral: 0.6 },
+  // Sad
+  cry:       { sad: 1, aa: 0.3 },
+  sob:       { sad: 0.9, oh: 0.5 },
+  sadSmile:  { sad: 0.6, happy: 0.3 },
+  pout:      { angry: 0.4, ou: 0.7 },
+  yell:      { angry: 1, aa: 0.9 },
+  determined:{ angry: 0.4, neutral: 0.6 },
 
-  think:    { relaxed: 0.5, blinkLeft: 0.3 },
-  confused: { surprised: 0.6, blink: 0.3, ih: 0.3 },
-  worried:  { sad: 0.5, surprised: 0.3 },
-  nervous:  { surprised: 0.4, blink: 0.4 },
-  bored:    { relaxed: 0.5, neutral: 0.5 },
-  sleepy:   { relaxed: 0.7, blink: 0.4 },
-  yawn:     { relaxed: 0.5, aa: 0.9 },
-  relieved: { relaxed: 1, happy: 0.3 },
+  // Thoughtful
+  think:     { relaxed: 0.5, blinkLeft: 0.3 },
+  confused:  { surprised: 0.6, blink: 0.3, ih: 0.3 },
+  worried:   { sad: 0.5, surprised: 0.3 },
+  nervous:   { surprised: 0.4, blink: 0.4 },
+  bored:     { relaxed: 0.5, neutral: 0.5 },
+  sleepy:    { relaxed: 0.7, blink: 0.4 },
+  yawn:      { relaxed: 0.5, aa: 0.9 },
+  relieved:  { relaxed: 1, happy: 0.3 },
 
-  excited:  { happy: 1, surprised: 0.4, aa: 0.4 },
-  shock:    { surprised: 1, aa: 0.3 },
-  scared:   { surprised: 1, aa: 0.6, oh: 0.5 },
-  love:     { happy: 0.8, relaxed: 0.3 },
-  blush:    { happy: 0.5, relaxed: 0.4 },
-  kiss:     { happy: 0.4, ou: 0.9 },
-  wink:     { happy: 0.7, blinkLeft: 1.0 },
-  winkR:    { happy: 0.7, blinkRight: 1.0 },
-  cheeky:   { happy: 0.6, ih: 0.4 },
-  proud:    { happy: 0.8, neutral: 0.2 },
+  // Excited
+  excited:   { happy: 1, surprised: 0.4, aa: 0.4 },
+  shock:     { surprised: 1, aa: 0.3 },
+  scared:    { surprised: 1, aa: 0.6, oh: 0.5 },
+  love:      { happy: 0.8, relaxed: 0.3 },
+  blush:     { happy: 0.5, relaxed: 0.4 },
+  kiss:      { happy: 0.4, ou: 0.9 },
+  wink:      { happy: 0.7, blinkLeft: 1.0 },
+  winkR:     { happy: 0.7, blinkRight: 1.0 },
+  cheeky:    { happy: 0.6, ih: 0.4 },
+  proud:     { happy: 0.8, neutral: 0.2 },
 
-  greeting: { happy: 1, aa: 0.3 },
-  farewell: { relaxed: 0.5, happy: 0.5 }
+  // Extended
+  greeting:  { happy: 1, aa: 0.3 },
+  farewell:  { relaxed: 0.5, happy: 0.5 },
+  shy:       { relaxed: 0.6, happy: 0.3, blink: 0.3 },
+  smug:      { relaxed: 0.6, happy: 0.4 },
+  silly:     { happy: 0.7, aa: 0.4, blinkLeft: 0.6 },
+  curious:   { surprised: 0.4, relaxed: 0.4 },
+  guilty:    { sad: 0.5, nervous: 0.3 },
+  mischievous: { happy: 0.5, smirk: 0.5, wink: 0.5 },
+  disgusted: { angry: 0.6, oh: 0.5 },
+  proud_smug: { happy: 0.6, relaxed: 0.5 }
 };
+
+// Alias
+COMPOSITE.mischievous = { happy: 0.5, relaxed: 0.4, blinkLeft: 0.5 };
 
 const exprCur = {}; const exprTgt = {};
 for (const n of ALL_EXPR) { exprCur[n] = 0; exprTgt[n] = 0; }
@@ -367,15 +379,45 @@ function updateExpressions(dt) {
 }
 
 /* ================= MOTIONS ================= */
+// Har motion ke values: upper arm (X/Y/Z), lower arm (X/Y/Z), spine, etc.
+// Positive Z = arm UP (T-pose = 0, rest = -1.15)
+// lForeX = elbow bend forward
+// lForeY / lForeZ = forearm swing (wave)
 const MOTIONS = {
-  idle:  { dur: 0,   headX:0,     headY:0,    neckX:0,     neckY:0,    spineX:0,     spineZ:0,    lArmX:0,     lArmZ:-1.15, rArmX:0,     rArmZ:1.15 },
-  nod:   { dur: 0.7, headX:0.30,  headY:0,    neckX:0.15,  neckY:0,    spineX:0.05,  spineZ:0,    lArmX:0,     lArmZ:-1.15, rArmX:0,     rArmZ:1.15 },
-  shake: { dur: 0.8, headX:0,     headY:0.35, neckX:0,     neckY:0.15, spineX:0,     spineZ:0,    lArmX:0,     lArmZ:-1.15, rArmX:0,     rArmZ:1.15 },
-  wave:  { dur: 1.5, headX:0.05,  headY:0.1,  neckX:0.03,  neckY:0.05, spineX:0,     spineZ:0.03, lArmX:-1.5,  lArmZ:-0.35, rArmX:0,     rArmZ:1.15, wave:true },
-  think: { dur: 1.6, headX:0.15,  headY:0.25, neckX:0.1,   neckY:0.12, spineX:0.05,  spineZ:-0.02,lArmX:-1.65, lArmZ:-0.25, rArmX:0,     rArmZ:1.15 },
-  cheer: { dur: 1.2, headX:-0.12, headY:0,    neckX:-0.06, neckY:0,    spineX:-0.06, spineZ:0,    lArmX:-2.6,  lArmZ:-0.55, rArmX:-2.6,  rArmZ:0.55 },
-  laugh: { dur: 1.0, headX:0.20,  headY:0,    neckX:0.1,   neckY:0,    spineX:0.08,  spineZ:0,    lArmX:-0.3,  lArmZ:-1.1,  rArmX:-0.3,  rArmZ:1.1,  bounce:true },
-  bow:   { dur: 1.3, headX:0.4,   headY:0,    neckX:0.2,   neckY:0,    spineX:0.35,  spineZ:0,    lArmX:0.2,   lArmZ:-1.0,  rArmX:0.2,   rArmZ:1.0 }
+  idle:  { dur:0,   headX:0,     headY:0,    neckX:0,    neckY:0,    spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0,    rArmZ:1.15 },
+  nod:   { dur:0.7, headX:0.30,  headY:0,    neckX:0.15, neckY:0,    spineX:0.05,  lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0,    rArmZ:1.15 },
+  shake: { dur:0.8, headX:0,     headY:0.35, neckX:0,    neckY:0.15, spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0,    rArmZ:1.15 },
+  think: { dur:1.6, headX:0.15,  headY:0.25, neckX:0.1,  neckY:0.12, spineX:0.05,  lArmX:-1.3,  lArmY:-0.3, lArmZ:-0.6,  lForeX:-1.6, lForeY:0.2, lForeZ:0,   rArmX:0,    rArmZ:1.15 },
+
+  // ✅ FIXED WAVE — elbow bend + forearm swing
+  wave: {
+    dur: 2.0,
+    headX: 0.06, headY: 0.12,
+    neckX: 0.03, neckY: 0.06,
+    spineX: 0, spineZ: 0.02,
+    // Upper arm: raised up-and-out from body
+    lArmX: -0.15,   // slight forward
+    lArmY: 0.0,
+    lArmZ: 0.35,    // arm UP (not hanging)
+    // Elbow: bend so forearm points up
+    lForeX: -1.55,  // ~89° bend at elbow
+    lForeY: 0.0,    // will oscillate
+    lForeZ: 0.0,
+    rArmX: 0, rArmZ: 1.15,
+    wave: true
+  },
+
+  cheer: { dur:1.2, headX:-0.12, headY:0,    neckX:-0.06,neckY:0,    spineX:-0.06, lArmX:-0.5,  lArmY:0,    lArmZ:1.4,   lForeX:-0.3, lForeY:0,   lForeZ:0,   rArmX:-0.5, rArmZ:-1.4 },
+  laugh: { dur:1.1, headX:0.20,  headY:0,    neckX:0.1,  neckY:0,    spineX:0.08,  lArmX:-0.3,  lArmY:0,    lArmZ:-1.0,  lForeX:-0.4, lForeY:0,   lForeZ:0,   rArmX:-0.3, rArmZ:1.0, bounce:true },
+  bow:   { dur:1.4, headX:0.4,   headY:0,    neckX:0.2,  neckY:0,    spineX:0.35,  lArmX:0.2,   lArmY:0,    lArmZ:-1.0,  lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0.2,  rArmZ:1.0 },
+  stretch: { dur:1.8, headX:-0.2, headY:0,   neckX:-0.1, neckY:0,    spineX:-0.05, lArmX:-0.3,  lArmY:0,    lArmZ:1.5,   lForeX:-0.2, lForeY:0,   lForeZ:0,   rArmX:-0.3, rArmZ:-1.5 },
+  tilt:  { dur:1.2, headX:0.1,   headY:0.2,  neckX:0.05, neckY:0.1,  spineX:0.03,  lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0,    rArmZ:1.15 },
+  jump:  { dur:1.0, headX:-0.15, headY:0,    neckX:-0.08,neckY:0,    spineX:-0.05, lArmX:-0.4,  lArmY:0,    lArmZ:0.3,   lForeX:-1.0, lForeY:0,   lForeZ:0,   rArmX:-0.4, rArmZ:-0.3, bounce:true, hop:true },
+
+  // ✅ Naya: point / salute / hands-on-hips
+  point: { dur:1.5, headX:0,     headY:0.15, neckX:0,    neckY:0.08, spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:-1.4, rArmZ:0.4 },
+  salute: { dur:1.3, headX:0.05, headY:0,    neckX:0.03, neckY:0,    spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:-1.6, rArmZ:0.6, rForeX:-1.6 },
+  handsHips: { dur:1.5, headX:0, headY:0,    neckX:0,    neckY:0,    spineX:0,     lArmX:0,     lArmY:0.2,  lArmZ:-0.7,  lForeX:-1.3, lForeY:0.3, lForeZ:0,   rArmX:0,    rArmZ:0.7 }
 };
 
 let motionName = 'idle';
@@ -384,7 +426,7 @@ let motionIntensity = 1.0;
 
 function startMotion(name, intensity = 1.0) {
   motionName = MOTIONS[name] ? name : 'idle';
-  motionIntensity = Math.max(0.3, Math.min(1.4, intensity || 1.0));
+  motionIntensity = Math.max(0.3, Math.min(1.5, intensity || 1.0));
   motionStart = performance.now();
 }
 
@@ -402,12 +444,14 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.getElapsedTime();
+
   if (vrm) {
     updateBlink(dt);
     updateExpressions(dt);
     updateBody(t, dt);
     vrm.update(dt);
   }
+  controls.update();
   renderer.render(scene, camera);
 }
 
@@ -427,11 +471,13 @@ function updateBody(t, dt) {
   if (!bones.head) return;
   const B = bones;
 
+  /* 1. BREATHING */
   const breathPhase = t * 1.6;
   const breath = Math.sin(breathPhase) * 0.5 + 0.5;
   if (B.chest)  B.chest.rotation.x  = -0.02 + breath * 0.035;
   if (B.spine)  B.spine.rotation.x  = -0.005 + breath * 0.012;
 
+  /* 2. SWAY */
   const swayX = Math.sin(t * 0.5) * 0.008;
   const swayZ = Math.cos(t * 0.35) * 0.012;
   const bobY  = Math.sin(breathPhase * 2) * 0.004;
@@ -441,27 +487,30 @@ function updateBody(t, dt) {
     B.hips.rotation.z = swayZ;
   }
 
+  /* 3. HEAD IDLE */
   const headIdleX = Math.sin(t * 0.9) * 0.015 + Math.sin(t * 2.3) * 0.006;
   const headIdleY = Math.cos(t * 0.7) * 0.02 + Math.sin(t * 1.9) * 0.008;
 
+  /* 4. MOTION ENVELOPE */
   const elapsed = (performance.now() - motionStart) / 1000;
   const m = MOTIONS[motionName] || MOTIONS.idle;
   const amp = motionIntensity;
 
   let env = 0;
   if (m.dur > 0) {
-    const riseT = 0.35, holdT = m.dur - 0.15;
+    const riseT = 0.40, holdT = m.dur - 0.20;
     if (elapsed < riseT) env = easeOutBack(elapsed / riseT);
     else if (elapsed < holdT) env = 1;
-    else if (elapsed < m.dur + 0.5) {
-      const k = (elapsed - holdT) / (m.dur + 0.5 - holdT);
+    else if (elapsed < m.dur + 0.6) {
+      const k = (elapsed - holdT) / (m.dur + 0.6 - holdT);
       env = 1 - easeInOut(clamp(k, 0, 1));
     } else { motionName = 'idle'; motionStart = performance.now(); }
   }
-
   const envAmp = env * amp;
-  let extraBob = 0;
-  if (m.bounce) extraBob = Math.sin(t * 18) * 0.02 * envAmp;
+
+  /* 5. TARGETS */
+  const idleLArmZ = -1.15;
+  const idleRArmZ = 1.15;
 
   const tgtHeadX = headIdleX + (m.headX || 0) * envAmp;
   const tgtHeadY = headIdleY + (m.headY || 0) * envAmp;
@@ -469,15 +518,37 @@ function updateBody(t, dt) {
   const tgtNeckY = (m.neckY || 0) * envAmp;
   const tgtSpineX = (m.spineX || 0) * envAmp;
   const tgtSpineZ = (m.spineZ || 0) * envAmp + swayZ * 0.3;
-  const tgtLArmX = (m.lArmX || 0) * envAmp;
-  const tgtLArmZ = (m.lArmZ ?? -1.15) + Math.sin(breathPhase + 0.3) * 0.01;
-  const tgtRArmX = (m.rArmX || 0) * envAmp;
-  const tgtRArmZ = (m.rArmZ ?? 1.15) + Math.sin(breathPhase + 0.3) * 0.01;
 
+  // LEFT ARM
+  const tgtLArmX = (m.lArmX || 0) * envAmp;
+  const tgtLArmY = (m.lArmY || 0) * envAmp;
+  const motionLArmZ = m.lArmZ ?? idleLArmZ;
+  const tgtLArmZ = idleLArmZ + (motionLArmZ - idleLArmZ) * envAmp + Math.sin(breathPhase + 0.3) * 0.008;
+
+  // LEFT FOREARM
+  const tgtLForeX = (m.lForeX || 0) * envAmp;
+  const tgtLForeY = (m.lForeY || 0) * envAmp;
+  const tgtLForeZ = (m.lForeZ || 0) * envAmp;
+
+  // RIGHT ARM
+  const tgtRArmX = (m.rArmX || 0) * envAmp;
+  const motionRArmZ = m.rArmZ ?? idleRArmZ;
+  const tgtRArmZ = idleRArmZ + (motionRArmZ - idleRArmZ) * envAmp + Math.sin(breathPhase + 0.3) * 0.008;
+  const tgtRForeX = (m.rForeX || 0) * envAmp;
+
+  /* 6. APPLY with damping */
   const dampHead = 1 - Math.pow(0.001, dt * 5);
   const dampNeck = 1 - Math.pow(0.001, dt * 6);
   const dampSpine = 1 - Math.pow(0.001, dt * 4.5);
   const dampArm = 1 - Math.pow(0.001, dt * 7);
+  const dampFore = 1 - Math.pow(0.001, dt * 8);
+
+  let extraBob = 0;
+  if (m.bounce) extraBob = Math.sin(t * 18) * 0.02 * envAmp;
+  let hopY = 0;
+  if (m.hop) hopY = Math.abs(Math.sin(t * 8)) * 0.06 * envAmp;
+
+  if (B.hips && hopY > 0) B.hips.position.y = bobY + hopY;
 
   if (B.head) {
     B.head.rotation.x += (tgtHeadX - B.head.rotation.x + extraBob) * dampHead;
@@ -496,29 +567,36 @@ function updateBody(t, dt) {
   if (B.upperChest) {
     B.upperChest.rotation.x += ((m.spineX || 0) * envAmp * 0.5 - B.upperChest.rotation.x) * dampSpine;
   }
+
+  /* ✅ LEFT ARM — full 3-axis */
   if (B.leftUpperArm) {
     B.leftUpperArm.rotation.x += (tgtLArmX - B.leftUpperArm.rotation.x) * dampArm;
+    B.leftUpperArm.rotation.y += (tgtLArmY - B.leftUpperArm.rotation.y) * dampArm;
     B.leftUpperArm.rotation.z += (tgtLArmZ - B.leftUpperArm.rotation.z) * dampArm;
   }
+  if (B.leftLowerArm) {
+    // ✅ WAVE — forearm oscillates side to side for natural waving
+    let waveY = 0;
+    if (m.wave && env > 0.25) {
+      waveY = Math.sin(t * 11) * 0.75 * envAmp;
+    }
+    B.leftLowerArm.rotation.x += (tgtLForeX - B.leftLowerArm.rotation.x) * dampFore;
+    B.leftLowerArm.rotation.y += ((tgtLForeY + waveY) - B.leftLowerArm.rotation.y) * dampFore;
+    B.leftLowerArm.rotation.z += (tgtLForeZ - B.leftLowerArm.rotation.z) * dampFore;
+  }
+  if (B.leftHand) {
+    // hand follows forearm with slight delay
+    const handWave = (m.wave && env > 0.25) ? Math.sin(t * 11 - 0.3) * 0.35 * envAmp : 0;
+    B.leftHand.rotation.z += (handWave - B.leftHand.rotation.z) * (1 - Math.pow(0.001, dt * 12));
+  }
+
+  /* RIGHT ARM */
   if (B.rightUpperArm) {
     B.rightUpperArm.rotation.x += (tgtRArmX - B.rightUpperArm.rotation.x) * dampArm;
     B.rightUpperArm.rotation.z += (tgtRArmZ - B.rightUpperArm.rotation.z) * dampArm;
   }
-
-  if (B.leftHand) {
-    if (m.wave && env > 0.3) {
-      const wave = Math.sin(t * 14) * 0.7 * envAmp;
-      B.leftHand.rotation.z += (wave - B.leftHand.rotation.z) * (1 - Math.pow(0.001, dt * 15));
-    } else {
-      B.leftHand.rotation.z += (0 - B.leftHand.rotation.z) * (1 - Math.pow(0.001, dt * 5));
-    }
-  }
-  if (B.leftLowerArm) {
-    const lowerTgt = (m.wave && env > 0.3) ? -0.5 * envAmp : 0;
-    B.leftLowerArm.rotation.x += (lowerTgt - B.leftLowerArm.rotation.x) * dampArm;
-  }
   if (B.rightLowerArm) {
-    B.rightLowerArm.rotation.x += (0 - B.rightLowerArm.rotation.x) * dampArm;
+    B.rightLowerArm.rotation.x += (tgtRForeX - B.rightLowerArm.rotation.x) * dampFore;
   }
 }
 
@@ -532,31 +610,34 @@ Reply ONLY with valid JSON. No markdown fences. No extra text.
 
 Schema:
 {
-  "reply":      string,                        // 1-2 short sentences in user's language
-  "expression": string,                        // from list below
-  "motion":     string,                        // from list below
-  "intensity":  number                         // 0.3 to 1.4
+  "reply":      string,     // 1-2 short sentences in user's language
+  "expression": string,     // from list below
+  "motion":     string,     // from list below
+  "intensity":  number      // 0.3 to 1.4
 }
 
-Available expressions (pick the most fitting):
+Available expressions:
 ${EXPRESSION_LIST}
 
-Available motions (pick the most fitting):
+Available motions:
 ${MOTION_LIST}
 
 Guidelines:
-- Greeting/welcome  → expression: "greeting", motion: "wave"
-- Happy/agreement   → expression: "happy" or "smile", motion: "nod"
-- Funny/laugh       → expression: "laugh" or "giggle", motion: "laugh"
-- Sad             → expression: "sad" or "cry", motion: "idle"
-- Angry           → expression: "angry" or "yell", motion: "shake"
-- Surprised       → expression: "surprised", motion: "idle"
-- Thinking        → expression: "think", motion: "think"
-- Confused        → expression: "confused", motion: "think"
-- Love/affection  → expression: "love" or "blush", motion: "idle"
-- Wink/playful    → expression: "wink", motion: "nod"
-- Confident       → expression: "proud" or "smirk", motion: "cheer"
-- Sad farewell    → expression: "sadSmile", motion: "wave"
+- Greeting/welcome     → expression: "greeting",  motion: "wave"
+- Happy/agreement      → expression: "happy" or "smile", motion: "nod"
+- Funny/laugh          → expression: "laugh" or "giggle", motion: "laugh"
+- Sad                  → expression: "sad" or "cry", motion: "idle"
+- Angry                → expression: "angry" or "yell", motion: "shake"
+- Surprised            → expression: "surprised", motion: "idle"
+- Thinking             → expression: "think", motion: "think"
+- Confused             → expression: "confused", motion: "tilt"
+- Love/affection       → expression: "love" or "blush", motion: "idle"
+- Wink/playful         → expression: "wink", motion: "nod"
+- Confident            → expression: "proud" or "smug", motion: "cheer"
+- Farewell             → expression: "farewell", motion: "wave"
+- Pointing             → expression: "neutral", motion: "point"
+- Salute               → expression: "proud", motion: "salute"
+- Shy                  → expression: "shy", motion: "tilt"
 
 Reply in the user's language (Hindi / English / Hinglish).
 `;
@@ -566,12 +647,8 @@ let chatHistory = [];
 async function sendToAI(userText) {
   const apiKey = getApiKey();
   if (!apiKey) {
-    return {
-      reply: '⚙️ Pehle Gemini API key set karo (top-left ⚙️ icon)',
-      expression: 'confused',
-      motion: 'think',
-      intensity: 0.8
-    };
+    return { reply: '⚙️ Pehle Gemini API key set karo (top-left ⚙️)',
+             expression: 'confused', motion: 'think', intensity: 0.8 };
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
@@ -599,13 +676,7 @@ async function sendToAI(userText) {
         },
         required: ['reply', 'expression', 'motion', 'intensity']
       }
-    },
-    safetySettings: [
-      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
-      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
-      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
-      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' }
-    ]
+    }
   };
 
   const res = await fetch(url, {
@@ -616,8 +687,7 @@ async function sendToAI(userText) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    const msg = err?.error?.message || `HTTP ${res.status}`;
-    throw new Error(msg);
+    throw new Error(err?.error?.message || `HTTP ${res.status}`);
   }
 
   const data = await res.json();
