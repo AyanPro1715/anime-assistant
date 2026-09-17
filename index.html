@@ -170,7 +170,7 @@ saveKeyBtn.addEventListener('click', () => {
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a2e);
 
-const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.01, 100);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 100);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
@@ -216,33 +216,40 @@ loader.load(VRM_URL, (gltf) => {
     scene.add(vrm.scene);
     vrm.scene.updateMatrixWorld(true);
 
+    // -------- Initial bounding box (before positioning) --------
     const box = new THREE.Box3().setFromObject(vrm.scene);
-    const size = new THREE.Vector3(); const center = new THREE.Vector3();
-    box.getSize(size); box.getCenter(center);
-    console.log('VRM size:', size);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
 
-    // Model floor pe + center + thoda upar
-    vrm.scene.position.x = -center.x;
-    vrm.scene.position.z = -center.z;
-    vrm.scene.position.y = -box.min.y;
+    // ✅ Model ko floor pe rakho, X/Z center karo
+    vrm.scene.position.set(-center.x, -box.min.y, -center.z);
+    vrm.scene.updateMatrixWorld(true);
 
-    const h = size.y || 1.5;
+    // -------- Recalculate box AFTER positioning --------
+    const box2 = new THREE.Box3().setFromObject(vrm.scene);
+    const size2 = new THREE.Vector3();
+    const center2 = new THREE.Vector3();
+    box2.getSize(size2);
+    box2.getCenter(center2);
 
-    // ✅ CAMERA FRAMING — pura upper body, model center me
-    const lookY = h * 0.60;     // chest focus
-    const camY  = h * 0.62;     // camera same level
-    let camZ    = h * 1.55;     // peeche — pura upper body
+    const h = size2.y || 1.5;
+    console.log('VRM height:', h, 'center:', center2);
 
-    if (innerWidth < innerHeight) camZ *= 1.10;  // mobile portrait me aur peeche
+    // ✅ Camera framing — upper body focus
+    const lookY = h * 0.72;
+    const camY  = h * 0.75;
+    let camZ    = h * 1.15;
+    if (innerWidth < innerHeight) camZ *= 1.25;
 
     camera.position.set(0, camY, camZ);
     camera.lookAt(0, lookY, 0);
     camera.updateProjectionMatrix();
 
-    // OrbitControls target center pe
     controls.target.set(0, lookY, 0);
-    controls.minDistance = h * 0.6;
-    controls.maxDistance = h * 3.0;
+    controls.minDistance = h * 0.4;
+    controls.maxDistance = h * 2.5;
     controls.update();
 
     statusEl.textContent = 'ready';
@@ -286,11 +293,11 @@ function captureBones() {
   ].forEach(n => bones[n] = vrm.humanoid.getNormalizedBoneNode(n));
 }
 
-/* ================= EXPRESSIONS (FULL) ================= */
+/* ================= EXPRESSIONS ================= */
 const ALL_EXPR = [
   'happy','angry','sad','relaxed','surprised','neutral',
   'aa','ih','ou','ee','oh',
-  'blinkLeft','blinkRight'
+  'blink','blinkLeft','blinkRight'
 ];
 
 const COMPOSITE = {
@@ -343,7 +350,14 @@ const COMPOSITE = {
   curious:   { surprised: 0.4, relaxed: 0.4 },
   guilty:    { sad: 0.5, nervous: 0.3 },
   mischievous: { happy: 0.5, relaxed: 0.4, blinkLeft: 0.5 },
-  disgusted: { angry: 0.6, oh: 0.5 }
+  disgusted: { angry: 0.6, oh: 0.5 },
+
+  // 🆕 Naye emotions
+  flustered:  { happy: 0.5, surprised: 0.3, sad: 0.2 },
+  deadpan:    { neutral: 1.0, blink: 0.5 },
+  awe:        { surprised: 0.8, happy: 0.3, aa: 0.3 },
+  suspicious: { relaxed: 0.6, angry: 0.3, blinkLeft: 0.4 },
+  shyLove:    { happy: 0.6, relaxed: 0.4, blush: 0.5 }
 };
 
 const exprCur = {}; const exprTgt = {};
@@ -391,7 +405,52 @@ const MOTIONS = {
   jump:  { dur:1.0, headX:-0.15, headY:0,    neckX:-0.08,neckY:0,    spineX:-0.05, lArmX:-0.4,  lArmY:0,    lArmZ:0.3,   lForeX:-1.0, lForeY:0,   lForeZ:0,   rArmX:-0.4, rArmZ:-0.3, bounce:true, hop:true },
   point: { dur:1.5, headX:0,     headY:0.15, neckX:0,    neckY:0.08, spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:-1.4, rArmZ:0.4 },
   salute:{ dur:1.3, headX:0.05,  headY:0,    neckX:0.03, neckY:0,    spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:-1.6, rArmZ:0.6, rForeX:-1.6 },
-  handsHips:{ dur:1.5, headX:0, headY:0,     neckX:0,    neckY:0,    spineX:0,     lArmX:0,     lArmY:0.2,  lArmZ:-0.7,  lForeX:-1.3, lForeY:0.3, lForeZ:0,   rArmX:0,    rArmZ:0.7 }
+  handsHips:{ dur:1.5, headX:0, headY:0,     neckX:0,    neckY:0,    spineX:0,     lArmX:0,     lArmY:0.2,  lArmZ:-0.7,  lForeX:-1.3, lForeY:0.3, lForeZ:0,   rArmX:0,    rArmZ:0.7 },
+
+  // 🆕 Naye poses
+  peace: {
+    dur: 1.8,
+    headX: -0.05, headY: 0.15,
+    neckX: -0.03, neckY: 0.08,
+    spineX: 0,
+    lArmX: -0.3, lArmY: 0, lArmZ: -1.15,
+    lForeX: 0, lForeY: 0, lForeZ: 0,
+    rArmX: -1.5, rArmZ: 0.5, rForeX: -1.5
+  },
+  clap: {
+    dur: 1.5,
+    headX: -0.08, headY: 0,
+    neckX: -0.05, neckY: 0,
+    spineX: -0.03,
+    lArmX: -0.5, lArmY: 0.3, lArmZ: -0.4, lForeX: -0.8,
+    rArmX: -0.5, rArmZ: 0.4, rForeX: -0.8,
+    bounce: true
+  },
+  crossArms: {
+    dur: 2.2,
+    headX: 0.05, headY: -0.1,
+    neckX: 0.03, neckY: -0.05,
+    spineX: 0.02,
+    lArmX: -0.7, lArmY: 0.5, lArmZ: -0.6, lForeX: -1.6, lForeY: 0.4,
+    rArmX: -0.7, rArmZ: 0.6, rForeX: -1.6
+  },
+  pray: {
+    dur: 2.0,
+    headX: 0.3, headY: 0,
+    neckX: 0.15, neckY: 0,
+    spineX: 0.15,
+    lArmX: -1.1, lArmY: 0.4, lArmZ: -0.3, lForeX: -1.7,
+    rArmX: -1.1, rArmZ: 0.3, rForeX: -1.7
+  },
+  dance: {
+    dur: 2.5,
+    headX: 0.05, headY: 0.3,
+    neckX: 0.02, neckY: 0.15,
+    spineX: 0, spineZ: 0.1,
+    lArmX: -0.6, lArmY: 0, lArmZ: 0.5, lForeX: -1.0,
+    rArmX: -0.6, rArmZ: -0.3, rForeX: -1.0,
+    bounce: true, hop: true
+  }
 };
 
 let motionName = 'idle';
@@ -585,14 +644,20 @@ Guidelines:
 - Happy → expression: "happy" or "smile", motion: "nod"
 - Laugh → expression: "laugh" or "giggle", motion: "laugh"
 - Sad → expression: "sad" or "cry", motion: "idle"
-- Angry → expression: "angry" or "yell", motion: "shake"
-- Surprised → expression: "surprised", motion: "idle"
+- Angry → expression: "angry" or "yell", motion: "shake" or "crossArms"
+- Surprised → expression: "surprised" or "awe", motion: "idle"
 - Think → expression: "think", motion: "think"
 - Confused → expression: "confused", motion: "tilt"
 - Love → expression: "love" or "blush", motion: "idle"
 - Wink → expression: "wink", motion: "nod"
 - Confident → expression: "proud" or "smug", motion: "cheer"
 - Farewell → expression: "farewell", motion: "wave"
+- Peace sign → expression: "happy", motion: "peace"
+- Clapping → expression: "cheer", motion: "clap"
+- Praying/thanks → expression: "relieved", motion: "pray"
+- Dancing/fun → expression: "excited", motion: "dance"
+- Shy/embarrassed → expression: "flustered" or "shy", motion: "idle"
+- Bored/serious → expression: "deadpan" or "bored", motion: "crossArms"
 
 Reply in user's language (Hindi / English / Hinglish).
 `;
