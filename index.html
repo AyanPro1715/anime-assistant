@@ -188,8 +188,14 @@ const VRMA_FILES = {
   anim06: './animations/VRMA_06.vrma',
   anim07: './animations/VRMA_07.vrma',
   anim08: './animations/VRMA_08.vrma',
-  anim09: './animations/VRMA_09.vrma',
-  anim10: './animations/VRMA_10.vrma'
+  anim09: './animations/VRMA_09.vrma'
+  anim12: './animations/VRMA_012.vrma',
+   anim13: './animations/VRMA_13.vrma',
+    anim14: './animations/VRMA_14.vrma',
+     anim15: './animations/VRMA_15.vrma',
+      anim16: './animations/VRMA_16.vrma',
+       anim17: './animations/VRMA_17.vrma',
+        anim18: './animations/VRMA_18.vrma'
 };
 
 const LAZY_VRMA = {
@@ -312,10 +318,8 @@ loader.load(VRM_URL, async (gltf) => {
     if (VRMUtils.combineMorphs) VRMUtils.combineMorphs(vrm);
 
     // ✅ VRM 0.x models ko correct direction me ghumao
+    // rotation.y ko touch MAT karo — rotateVRM0 ne jo kiya wahi sahi hai
     VRMUtils.rotateVRM0(vrm);
-
-    // ✅ Extra: ensure model camera ki taraf face kare
-    vrm.scene.rotation.y = 0;
 
     vrm.scene.position.set(0, 0, 0);
     scene.add(vrm.scene);
@@ -498,6 +502,7 @@ function playVRMA(name, fadeIn = 0.3) {
       motionName = 'idle';
       motionStart = performance.now();
 
+      // Hard reset multiple frames
       resetToIdlePose();
       requestAnimationFrame(() => resetToIdlePose());
       setTimeout(() => resetToIdlePose(), 30);
@@ -513,7 +518,7 @@ function playVRMA(name, fadeIn = 0.3) {
   return true;
 }
 
-/* ================= IDLE POSE RESET ================= */
+/* ================= IDLE POSE RESET (HARD) ================= */
 function resetToIdlePose() {
   if (!vrm?.humanoid) return;
 
@@ -532,22 +537,30 @@ function resetToIdlePose() {
   names.forEach(n => {
     const node = vrm.humanoid.getNormalizedBoneNode(n);
     if (node) {
+      // ✅ HARD SET — quaternion + rotation dono reset
+      node.quaternion.set(0, 0, 0, 1);
       node.rotation.set(0, 0, 0);
       node.position.set(0, 0, 0);
       node.scale.set(1, 1, 1);
-      node.quaternion.set(0, 0, 0, 1);
     }
   });
 
+  // Idle arm position
   const lArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
   const rArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
-  if (lArm) lArm.rotation.z = -1.15;
-  if (rArm) rArm.rotation.z = 1.15;
+  if (lArm) {
+    lArm.quaternion.set(0, 0, 0, 1);
+    lArm.rotation.set(0, 0, -1.15);
+  }
+  if (rArm) {
+    rArm.quaternion.set(0, 0, 0, 1);
+    rArm.rotation.set(0, 0, 1.15);
+  }
 
   const chest = vrm.humanoid.getNormalizedBoneNode('chest');
   const spine = vrm.humanoid.getNormalizedBoneNode('spine');
-  if (chest) chest.rotation.x = 0.015;
-  if (spine) spine.rotation.x = 0.005;
+  if (chest) { chest.quaternion.set(0, 0, 0, 1); chest.rotation.x = 0.015; }
+  if (spine) { spine.quaternion.set(0, 0, 0, 1); spine.rotation.x = 0.005; }
 }
 
 /* ================= BONE CACHE ================= */
@@ -700,15 +713,15 @@ function animate() {
     updateBlink(dt);
     updateExpressions(dt);
 
-    // ✅ Safety: agar action chal nahi raha par reference bacha hai
     if (currentVRMAction && !currentVRMAction.isRunning()) {
       currentVRMAction = null;
-      resetToIdlePose();
       motionName = 'idle';
       motionStart = performance.now();
     }
 
     if (!currentVRMAction) {
+      // ✅ HAR FRAME hard reset — koi stuck pose nahi
+      resetToIdlePose();
       updateBody(t, dt);
     }
     vrm.update(dt);
@@ -886,8 +899,8 @@ Guidelines:
 - Squat / baithna → motion: "anim07" (VRMA)
 - Full body show → motion: "anim01" (VRMA)
 - Reading / padhna → motion: "reading" (VRMA)
-- Dance / naach / gaana → motion: "anim08" or "anim09" or "anim10"
-- Koi bhi random VRMA → anim08 / anim09 / anim10 me se pick karo
+- Dance / naach / gaana → motion: "anim08" or "anim09"
+- Koi bhi random VRMA → anim08 / anim09 me se pick karo
 - Happy / nod → motion: "nod"
 - Laugh / giggle → expression: "laugh" or "giggle", motion: "laugh"
 - Sad / cry → expression: "sad" or "cry", motion: "idle"
@@ -1042,4 +1055,4 @@ addEventListener('resize', () => {
 log('✅ App initialized', 'ok');
 </script>
 </body>
-</html>
+</html>l>
