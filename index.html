@@ -27,6 +27,11 @@
     width: 36px; height: 36px; border-radius: 50%; background: #ffffff22;
     border: none; color: #fff; font-size: 18px; cursor: pointer; z-index: 60;
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #resetCamBtn { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 54px;
+    width: 36px; height: 36px; border-radius: 50%; background: #ffffff22;
+    border: none; color: #fff; font-size: 16px; cursor: pointer; z-index: 60;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+
   #settingsPanel { position: fixed; inset: 0; background: #00000099; z-index: 70;
     display: none; align-items: center; justify-content: center; padding: 20px; }
   #settingsPanel.show { display: flex; }
@@ -58,12 +63,6 @@
     font-size: 11px; color: #ffffff60; z-index: 15; pointer-events: none;
     background: #00000040; padding: 4px 12px; border-radius: 12px; }
   #hint.hide { opacity: 0; transition: opacity .8s; }
-
-  /* Reset camera button */
-  #resetCamBtn { position: fixed; top: max(8px, env(safe-area-inset-top)); left: 54px;
-    width: 36px; height: 36px; border-radius: 50%; background: #ffffff22;
-    border: none; color: #fff; font-size: 16px; cursor: pointer; z-index: 60;
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 
   #chatBox { position: fixed; left: 50%; transform: translateX(-50%);
     bottom: max(16px, env(safe-area-inset-bottom));
@@ -106,7 +105,7 @@
 
   <div id="bubble"></div>
   <div id="status">init…</div>
-  <div id="hint">💡 1-finger drag: ghumao · 2-finger: zoom/pan</div>
+  <div id="hint">💡 1-finger: ghumao · 2-finger: zoom/pan</div>
 
   <div id="chatBox">
     <input id="userInput" placeholder="Type hello…" autocomplete="off" />
@@ -139,7 +138,6 @@ import {
 const VRM_URL = './character.vrm?v=9';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
-/* 🎬 ====== VRMA FILES ====== */
 const VRMA_FILES = {
   anim01: './animations/VRMA_01.vrma',
   anim02: './animations/VRMA_02.vrma',
@@ -210,37 +208,23 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
-/* ============================================================
-   ✅ COMPLETE FREE CAMERA — koi restriction nahi
-   User kisi bhi angle se dekh sakta hai: niche, upar, side, back
-   ============================================================ */
+/* ============ COMPLETE FREE CAMERA ============ */
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-
-// ✅ Full freedom
 controls.enablePan = true;
 controls.enableZoom = true;
 controls.enableRotate = true;
 controls.screenSpacePanning = true;
-
-// ✅ Koi polar restriction nahi — 0 se PI tak sab allowed
 controls.minPolarAngle = 0;
 controls.maxPolarAngle = Math.PI;
-
-// ✅ Koi azimuth restriction nahi — full 360°
 controls.minAzimuthAngle = -Infinity;
 controls.maxAzimuthAngle = Infinity;
-
-// ✅ Zoom distances wide range
 controls.minDistance = 0.05;
 controls.maxDistance = 50;
-
 controls.rotateSpeed = 0.8;
 controls.zoomSpeed = 0.9;
 controls.panSpeed = 1.0;
-
-// ✅ Touch gestures: 1 finger rotate, 2 finger pinch-zoom + pan
 controls.touches = {
   ONE: THREE.TOUCH.ROTATE,
   TWO: THREE.TOUCH.DOLLY_PAN
@@ -267,10 +251,8 @@ const vrmaClips = {};
 let currentVRMAction = null;
 const clock = new THREE.Clock();
 
-// Store default camera view (for reset button)
 let defaultCameraPos = new THREE.Vector3(0, 1, 3);
 let defaultCameraTarget = new THREE.Vector3(0, 1, 0);
-let modelHeight = 1.5;
 
 const loader = new GLTFLoader();
 loader.register(parser => new VRMLoaderPlugin(parser));
@@ -295,18 +277,15 @@ loader.load(VRM_URL, async (gltf) => {
     lookAtQuatProxy.name = 'lookAtQuaternionProxy';
     vrm.scene.add(lookAtQuatProxy);
 
-    // Bounding box (before positioning)
     const box = new THREE.Box3().setFromObject(vrm.scene);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
 
-    // Model ko floor pe center karo (X/Z)
     vrm.scene.position.set(-center.x, -box.min.y, -center.z);
     vrm.scene.updateMatrixWorld(true);
 
-    // Recalculate AFTER positioning
     const box2 = new THREE.Box3().setFromObject(vrm.scene);
     const size2 = new THREE.Vector3();
     const center2 = new THREE.Vector3();
@@ -314,21 +293,13 @@ loader.load(VRM_URL, async (gltf) => {
     box2.getCenter(center2);
 
     const h = size2.y || 1.5;
-    modelHeight = h;
     console.log('VRM height:', h, 'center:', center2);
 
-    /* ============================================================
-       ✅ MODEL KO SCREEN KE CENTER ME RAKHO
-       ============================================================ */
-    // Model ka mid Y — screen ke center pe aayega
     const modelMidY = h * 0.5;
-
-    // Auto camera distance — model poori screen me fit ho
     const fovRad = camera.fov * Math.PI / 180;
     let camDist = (h * 1.20) / (2 * Math.tan(fovRad / 2));
-    if (innerWidth < innerHeight) camDist *= 1.10;   // portrait mobile
+    if (innerWidth < innerHeight) camDist *= 1.10;
 
-    // Default camera — model ke bilkul center ke aage
     defaultCameraPos.set(0, modelMidY, camDist);
     defaultCameraTarget.set(0, modelMidY, 0);
 
@@ -345,10 +316,8 @@ loader.load(VRM_URL, async (gltf) => {
 
     mixer = new THREE.AnimationMixer(vrm.scene);
 
-    // VRMA load karo (background)
     loadAllVRMA();
 
-    // Greeting
     setTimeout(() => {
       if (vrmaClips['anim02']) {
         playVRMA('anim02');
@@ -430,7 +399,7 @@ async function loadLazyVRMA(name) {
   }
 }
 
-/* ================= VRMA PLAYBACK ================= */
+/* ================= VRMA PLAYBACK (T-POSE FIX) ================= */
 function playVRMA(name, fadeIn = 0.3) {
   const clip = vrmaClips[name];
   if (!clip || !mixer) return false;
@@ -450,49 +419,82 @@ function playVRMA(name, fadeIn = 0.3) {
   currentVRMAction = action;
 
   const onFinished = (e) => {
-    if (e.action === action) {
-      action.fadeOut(0.35);
-      setTimeout(() => {
-        try { action.stop(); } catch {}
-        action.enabled = false;
-        try { mixer.uncacheAction(clip); } catch {}
-        currentVRMAction = null;
-        resetToIdlePose();
-        motionName = 'idle';
-        motionStart = performance.now();
-      }, 370);
-      mixer.removeEventListener('finished', onFinished);
-    }
-  };
-  mixer.addEventListener('finished', onFinished);
+    if (e.action !== action) return;
+    mixer.removeEventListener('finished', onFinished);
 
+    // 1) Smooth fade out
+    try { action.fadeOut(0.3); } catch {}
+
+    // 2) Hard kill — fade ke baad
+    setTimeout(() => {
+      try {
+        action.stop();
+        action.enabled = false;
+        action.setEffectiveWeight(0);
+      } catch (err) { console.warn('action stop failed', err); }
+
+      try { mixer.stopAllAction(); } catch (err) {}
+
+      // 🔥 Root binding clear — bones mixer se chhut jayein
+      try { mixer.uncacheRoot(vrm.scene); } catch (err) {
+        console.warn('uncacheRoot failed', err);
+      }
+
+      currentVRMAction = null;
+      motionName = 'idle';
+      motionStart = performance.now();
+
+      // 3) Multi-frame force reset — T-pose se bachne ke liye
+      resetToIdlePose();
+      requestAnimationFrame(() => resetToIdlePose());
+      setTimeout(() => resetToIdlePose(), 30);
+      setTimeout(() => resetToIdlePose(), 80);
+      setTimeout(() => resetToIdlePose(), 150);
+      setTimeout(() => resetToIdlePose(), 300);
+    }, 320);
+  };
+
+  mixer.addEventListener('finished', onFinished);
   return true;
 }
 
 /* ================= IDLE POSE RESET ================= */
 function resetToIdlePose() {
-  if (!bones.head) return;
-  const B = bones;
+  if (!vrm?.humanoid) return;
 
-  ['hips','spine','chest','upperChest','neck','head',
-   'leftShoulder','rightShoulder',
-   'leftUpperArm','rightUpperArm',
-   'leftLowerArm','rightLowerArm',
-   'leftHand','rightHand',
-   'leftUpperLeg','rightUpperLeg',
-   'leftLowerLeg','rightLowerLeg'
-  ].forEach(n => {
-    if (B[n]) {
-      B[n].rotation.set(0, 0, 0);
-      if (B[n].position) B[n].position.set(0, 0, 0);
-      if (B[n].scale) B[n].scale.set(1, 1, 1);
+  // Normalized bones reset
+  const names = [
+    'hips','spine','chest','upperChest','neck','head',
+    'leftShoulder','rightShoulder',
+    'leftUpperArm','rightUpperArm',
+    'leftLowerArm','rightLowerArm',
+    'leftHand','rightHand',
+    'leftUpperLeg','rightUpperLeg',
+    'leftLowerLeg','rightLowerLeg',
+    'leftFoot','rightFoot',
+    'leftToes','rightToes'
+  ];
+
+  names.forEach(n => {
+    const node = vrm.humanoid.getNormalizedBoneNode(n);
+    if (node) {
+      node.rotation.set(0, 0, 0);
+      node.position.set(0, 0, 0);
+      node.scale.set(1, 1, 1);
+      node.quaternion.set(0, 0, 0, 1);
     }
   });
 
-  if (B.leftUpperArm)  B.leftUpperArm.rotation.z  = -1.15;
-  if (B.rightUpperArm) B.rightUpperArm.rotation.z =  1.15;
-  if (B.chest) B.chest.rotation.x = 0.015;
-  if (B.spine) B.spine.rotation.x = 0.005;
+  // Idle arm position
+  const lArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+  const rArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
+  if (lArm) lArm.rotation.z = -1.15;
+  if (rArm) rArm.rotation.z = 1.15;
+
+  const chest = vrm.humanoid.getNormalizedBoneNode('chest');
+  const spine = vrm.humanoid.getNormalizedBoneNode('spine');
+  if (chest) chest.rotation.x = 0.015;
+  if (spine) spine.rotation.x = 0.005;
 }
 
 /* ================= BONE CACHE ================= */
@@ -644,6 +646,15 @@ function animate() {
   if (vrm) {
     updateBlink(dt);
     updateExpressions(dt);
+
+    // ✅ Safety net: agar action chal nahi raha par reference bacha hai
+    if (currentVRMAction && !currentVRMAction.isRunning()) {
+      currentVRMAction = null;
+      resetToIdlePose();
+      motionName = 'idle';
+      motionStart = performance.now();
+    }
+
     if (!currentVRMAction) {
       updateBody(t, dt);
     }
