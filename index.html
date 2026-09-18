@@ -31,6 +31,21 @@
     width: 36px; height: 36px; border-radius: 50%; background: #ffffff22;
     border: none; color: #fff; font-size: 16px; cursor: pointer; z-index: 60;
     backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  #debugToggle { position: fixed; top: max(8px, env(safe-area-inset-top)); right: 10px;
+    width: 36px; height: 36px; border-radius: 50%; background: #ffffff22;
+    border: none; color: #fff; font-size: 14px; cursor: pointer; z-index: 66;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+
+  #debugPanel { position: fixed; top: 55px; right: 8px; z-index: 65;
+    max-width: 65vw; max-height: 45vh; overflow-y: auto;
+    background: #000000dd; color: #0f0; font-family: monospace;
+    font-size: 10px; padding: 8px 10px; border-radius: 8px;
+    line-height: 1.4; display: none; border: 1px solid #0f0444; }
+  #debugPanel.show { display: block; }
+  #debugPanel .err { color: #f66; }
+  #debugPanel .ok { color: #6f6; }
+  #debugPanel .info { color: #6cf; }
+  #debugPanel .warn { color: #fc6; }
 
   #settingsPanel { position: fixed; inset: 0; background: #00000099; z-index: 70;
     display: none; align-items: center; justify-content: center; padding: 20px; }
@@ -74,7 +89,7 @@
   #sendBtn { padding: 14px 22px; border-radius: 30px; border: none; cursor: pointer;
     background: #ff6b9d; color: #fff; font-weight: 600; font-size: 15px; flex-shrink: 0; }
   #sendBtn:disabled { opacity: .5; cursor: not-allowed; }
-  #status { position: fixed; top: max(8px, env(safe-area-inset-top)); right: 10px;
+  #status { position: fixed; top: max(8px, env(safe-area-inset-top)); right: 54px;
     color: #ffffff80; font-size: 11px; z-index: 30; font-family: monospace; }
 </style>
 </head>
@@ -89,6 +104,8 @@
 
   <button id="settingsBtn" title="Settings">⚙️</button>
   <button id="resetCamBtn" title="Reset Camera">🎯</button>
+  <button id="debugToggle" title="Debug">🐞</button>
+  <div id="debugPanel"></div>
 
   <div id="settingsPanel">
     <div id="settingsInner">
@@ -134,6 +151,30 @@ import {
   VRMLookAtQuaternionProxy
 } from '@pixiv/three-vrm-animation';
 
+/* ================= DEBUG PANEL ================= */
+const debugPanel = document.getElementById('debugPanel');
+const debugToggle = document.getElementById('debugToggle');
+let debugLines = [];
+
+debugToggle.addEventListener('click', () => {
+  debugPanel.classList.toggle('show');
+});
+
+function log(msg, type = 'info') {
+  const time = new Date().toLocaleTimeString('en-IN', { hour12: false }).slice(0, 8);
+  const cls = type === 'error' ? 'err' : type === 'ok' ? 'ok' : type === 'warn' ? 'warn' : 'info';
+  debugLines.push({ time, msg: String(msg), cls });
+  if (debugLines.length > 60) debugLines.shift();
+  debugPanel.innerHTML = debugLines
+    .map(d => `<div class="${d.cls}">[${d.time}] ${d.msg}</div>`)
+    .join('');
+  debugPanel.scrollTop = debugPanel.scrollHeight;
+  console.log(msg);
+}
+
+window.addEventListener('error', (e) => log('❌ ' + (e.message || e.error), 'error'));
+window.addEventListener('unhandledrejection', (e) => log('❌ ' + (e.reason?.message || e.reason), 'error'));
+
 /* ================= CONFIG ================= */
 const VRM_URL = './character.vrm?v=9';
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -177,6 +218,7 @@ function showError(msg) {
   errorBox.style.display = 'block';
   errorBox.textContent = String(msg);
   loadText.textContent = '❌ Load fail ho gaya';
+  log('💥 ' + msg, 'error');
 }
 
 /* ================= SETTINGS ================= */
@@ -258,6 +300,8 @@ const loader = new GLTFLoader();
 loader.register(parser => new VRMLoaderPlugin(parser));
 loader.register(parser => new VRMAnimationLoaderPlugin(parser));
 
+log('🚀 VRM loading start', 'info');
+
 loader.load(VRM_URL, async (gltf) => {
   try {
     vrm = gltf.userData.vrm;
@@ -293,7 +337,7 @@ loader.load(VRM_URL, async (gltf) => {
     box2.getCenter(center2);
 
     const h = size2.y || 1.5;
-    console.log('VRM height:', h, 'center:', center2);
+    log('📏 VRM height: ' + h.toFixed(2), 'ok');
 
     const modelMidY = h * 0.5;
     const fovRad = camera.fov * Math.PI / 180;
@@ -316,6 +360,7 @@ loader.load(VRM_URL, async (gltf) => {
 
     mixer = new THREE.AnimationMixer(vrm.scene);
 
+    log('🎬 VRMA loading start', 'info');
     loadAllVRMA();
 
     setTimeout(() => {
@@ -331,7 +376,7 @@ loader.load(VRM_URL, async (gltf) => {
 
     animate();
   } catch (e) {
-    console.error(e);
+    log('❌ Setup: ' + (e.message || e), 'error');
     showError('Setup error: ' + (e.message || e));
   }
 }, (progress) => {
@@ -344,7 +389,7 @@ loader.load(VRM_URL, async (gltf) => {
     loadText.textContent = `Model load ho raha hai… ${(progress.loaded / 1048576).toFixed(1)} MB`;
   }
 }, (err) => {
-  console.error(err);
+  log('❌ VRM fetch: ' + (err?.message || err), 'error');
   showError(err?.message || String(err));
   statusEl.textContent = 'failed';
 });
@@ -355,6 +400,7 @@ resetCamBtn.addEventListener('click', () => {
   camera.lookAt(defaultCameraTarget);
   controls.target.copy(defaultCameraTarget);
   controls.update();
+  log('🎯 Camera reset', 'info');
 });
 
 /* ================= VRMA LOADING ================= */
@@ -369,13 +415,13 @@ async function loadAllVRMA() {
       if (!vrmAnim) throw new Error('No VRMA data');
       const clip = createVRMAnimationClip(vrmAnim, vrm);
       vrmaClips[name] = clip;
-      console.log(`✅ ${name} (${clip.duration.toFixed(1)}s)`);
+      log(`✅ ${name} (${clip.duration.toFixed(1)}s)`, 'ok');
       return name;
     })
   );
 
   const loaded = results.filter(r => r.status === 'fulfilled').length;
-  console.log(`📊 Total VRMA loaded: ${loaded}/${names.length}`);
+  log(`📊 VRMA: ${loaded}/${names.length}`, loaded === names.length ? 'ok' : 'warn');
   statusEl.textContent = 'ready';
 }
 
@@ -384,16 +430,17 @@ async function loadLazyVRMA(name) {
   if (!LAZY_VRMA[name]) return false;
 
   statusEl.textContent = 'loading ' + name + '…';
+  log('🐢 Lazy loading: ' + name, 'info');
   try {
     const gltf = await loader.loadAsync(LAZY_VRMA[name]);
     const vrmAnim = gltf.userData.vrmAnimations?.[0];
     if (!vrmAnim) throw new Error('No VRMA data');
     vrmaClips[name] = createVRMAnimationClip(vrmAnim, vrm);
-    console.log(`✅ Lazy loaded: ${name} (${vrmaClips[name].duration.toFixed(1)}s)`);
+    log(`✅ ${name} (${vrmaClips[name].duration.toFixed(1)}s)`, 'ok');
     statusEl.textContent = 'ready';
     return true;
   } catch (e) {
-    console.warn('Lazy load failed:', name, e);
+    log('❌ Lazy fail: ' + name, 'error');
     statusEl.textContent = 'ready';
     return false;
   }
@@ -402,7 +449,10 @@ async function loadLazyVRMA(name) {
 /* ================= VRMA PLAYBACK (T-POSE FIX) ================= */
 function playVRMA(name, fadeIn = 0.3) {
   const clip = vrmaClips[name];
-  if (!clip || !mixer) return false;
+  if (!clip || !mixer) {
+    log('⚠️ playVRMA: no clip ' + name, 'warn');
+    return false;
+  }
 
   if (currentVRMAction) {
     try { currentVRMAction.stop(); } catch {}
@@ -417,40 +467,40 @@ function playVRMA(name, fadeIn = 0.3) {
   action.play();
 
   currentVRMAction = action;
+  log('▶️ ' + name, 'info');
 
   const onFinished = (e) => {
     if (e.action !== action) return;
     mixer.removeEventListener('finished', onFinished);
 
-    // 1) Smooth fade out
     try { action.fadeOut(0.3); } catch {}
 
-    // 2) Hard kill — fade ke baad
     setTimeout(() => {
       try {
         action.stop();
         action.enabled = false;
         action.setEffectiveWeight(0);
-      } catch (err) { console.warn('action stop failed', err); }
+      } catch (err) {
+        log('⚠️ stop: ' + err.message, 'warn');
+      }
 
-      try { mixer.stopAllAction(); } catch (err) {}
-
-      // 🔥 Root binding clear — bones mixer se chhut jayein
+      try { mixer.stopAllAction(); } catch {}
       try { mixer.uncacheRoot(vrm.scene); } catch (err) {
-        console.warn('uncacheRoot failed', err);
+        log('⚠️ uncacheRoot: ' + err.message, 'warn');
       }
 
       currentVRMAction = null;
       motionName = 'idle';
       motionStart = performance.now();
 
-      // 3) Multi-frame force reset — T-pose se bachne ke liye
       resetToIdlePose();
       requestAnimationFrame(() => resetToIdlePose());
       setTimeout(() => resetToIdlePose(), 30);
       setTimeout(() => resetToIdlePose(), 80);
       setTimeout(() => resetToIdlePose(), 150);
       setTimeout(() => resetToIdlePose(), 300);
+
+      log('✅ idle reset', 'ok');
     }, 320);
   };
 
@@ -462,7 +512,6 @@ function playVRMA(name, fadeIn = 0.3) {
 function resetToIdlePose() {
   if (!vrm?.humanoid) return;
 
-  // Normalized bones reset
   const names = [
     'hips','spine','chest','upperChest','neck','head',
     'leftShoulder','rightShoulder',
@@ -485,7 +534,6 @@ function resetToIdlePose() {
     }
   });
 
-  // Idle arm position
   const lArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
   const rArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
   if (lArm) lArm.rotation.z = -1.15;
@@ -647,7 +695,6 @@ function animate() {
     updateBlink(dt);
     updateExpressions(dt);
 
-    // ✅ Safety net: agar action chal nahi raha par reference bacha hai
     if (currentVRMAction && !currentVRMAction.isRunning()) {
       currentVRMAction = null;
       resetToIdlePose();
@@ -855,10 +902,12 @@ let chatHistory = [];
 async function sendToAI(userText) {
   const apiKey = getApiKey();
   if (!apiKey) {
+    log('⚠️ No API key', 'warn');
     return { reply: '⚙️ Pehle Gemini API key set karo (top-left ⚙️)',
              expression: 'confused', motion: 'think', intensity: 0.8 };
   }
 
+  log('📤 Sending to Gemini…', 'info');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const contents = [
     ...chatHistory.map(h => ({
@@ -895,7 +944,9 @@ async function sendToAI(userText) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `HTTP ${res.status}`);
+    const errMsg = err?.error?.message || `HTTP ${res.status}`;
+    log('❌ Gemini: ' + errMsg, 'error');
+    throw new Error(errMsg);
   }
 
   const data = await res.json();
@@ -903,6 +954,8 @@ async function sendToAI(userText) {
   let parsed;
   try { parsed = JSON.parse(text); }
   catch { parsed = { reply: text, expression: 'neutral', motion: 'idle', intensity: 1 }; }
+
+  log(`✅ AI: ${parsed.motion} / ${parsed.expression}`, 'ok');
 
   chatHistory.push({ role: 'user', content: userText });
   chatHistory.push({ role: 'assistant', content: JSON.stringify(parsed) });
@@ -946,6 +999,7 @@ async function handleSend() {
       const vrmaKeys = Object.keys(vrmaClips);
       if (vrmaKeys.length > 0) {
         const random = vrmaKeys[Math.floor(Math.random() * vrmaKeys.length)];
+        log('🎲 random fallback: ' + random, 'warn');
         playVRMA(random);
       } else {
         startMotion('idle', 1.0);
@@ -954,7 +1008,7 @@ async function handleSend() {
 
     setTimeout(() => setExpression('neutral', 0.8), 4500);
   } catch (e) {
-    console.error(e);
+    log('❌ Chat error: ' + (e.message || e), 'error');
     bubble.textContent = '⚠️ ' + (e.message || e);
     bubble.classList.add('show');
     setExpression('sad', 1.0);
@@ -973,6 +1027,8 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+
+log('✅ App initialized', 'ok');
 </script>
 </body>
 </html>
