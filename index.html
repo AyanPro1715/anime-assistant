@@ -132,18 +132,24 @@ import {
 const VRM_URL = './character.vrm?v=9';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
-/* 🎬 ====== APNE VRMA FILENAMES YAHAN DAALO ======
-   Agar tumhare file names alag hain to yahan change karo.
-   Key = naam jo AI use karega, Value = actual file path
-*/
+/* 🎬 ====== VRMA FILES (11 animations) ====== */
 const VRMA_FILES = {
-  greeting:   './animations/VRMA_02.vrma',
-  peace:      './animations/VRMA_03.vrma',
-  shoot:      './animations/VRMA_04.vrma',
-  spin:       './animations/VRMA_05.vrma',
-  modelPose:  './animations/VRMA_06.vrma',
-  squat:      './animations/VRMA_07.vrma',
-  showBody:   './animations/VRMA_01.vrma'
+  anim01: './animations/VRMA_01.vrma',
+  anim02: './animations/VRMA_02.vrma',
+  anim03: './animations/VRMA_03.vrma',
+  anim04: './animations/VRMA_04.vrma',
+  anim05: './animations/VRMA_05.vrma',
+  anim06: './animations/VRMA_06.vrma',
+  anim07: './animations/VRMA_07.vrma',
+  anim08: './animations/VRMA_08.vrma',
+  anim09: './animations/VRMA_09.vrma',
+  anim10: './animations/VRMA_10.vrma'
+  // anim11 lazy load hoga (18 MB — sirf jab user maange)
+};
+
+/* 🐢 Heavy files jo lazily load hongi */
+const LAZY_VRMA = {
+  reading: './animations/VRMA_11.vrma'
 };
 
 /* ================= DOM ================= */
@@ -235,8 +241,6 @@ loader.load(VRM_URL, async (gltf) => {
     if (VRMUtils.removeUnnecessaryVertices) VRMUtils.removeUnnecessaryVertices(gltf.scene);
     if (VRMUtils.combineSkeletons) VRMUtils.combineSkeletons(gltf.scene);
     if (VRMUtils.combineMorphs) VRMUtils.combineMorphs(vrm);
-
-    // VRM 0.x ko VRM 1.0 ki tarah face karo (front ki taraf)
     VRMUtils.rotateVRM0(vrm);
 
     vrm.scene.rotation.y = 0;
@@ -244,17 +248,14 @@ loader.load(VRM_URL, async (gltf) => {
     scene.add(vrm.scene);
     vrm.scene.updateMatrixWorld(true);
 
-    // LookAt proxy add karo (VRMA ke liye zaroori)
     const lookAtQuatProxy = new VRMLookAtQuaternionProxy(vrm.lookAt);
     lookAtQuatProxy.name = 'lookAtQuaternionProxy';
     vrm.scene.add(lookAtQuatProxy);
 
-    // Bounding box
     const box = new THREE.Box3().setFromObject(vrm.scene);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
+    box.getSize(size); box.getCenter(center);
 
     vrm.scene.position.set(-center.x, -box.min.y, -center.z);
     vrm.scene.updateMatrixWorld(true);
@@ -262,13 +263,11 @@ loader.load(VRM_URL, async (gltf) => {
     const box2 = new THREE.Box3().setFromObject(vrm.scene);
     const size2 = new THREE.Vector3();
     const center2 = new THREE.Vector3();
-    box2.getSize(size2);
-    box2.getCenter(center2);
+    box2.getSize(size2); box2.getCenter(center2);
 
     const h = size2.y || 1.5;
     console.log('VRM height:', h, 'center:', center2);
 
-    // Camera framing
     const lookY = h * 0.68;
     const camY  = h * 0.72;
     let camZ    = h * 1.05;
@@ -287,16 +286,15 @@ loader.load(VRM_URL, async (gltf) => {
     loadingEl.classList.add('hidden');
     captureBones();
 
-    // Animation mixer
     mixer = new THREE.AnimationMixer(vrm.scene);
 
-    // VRMA clips load karo
-    await loadAllVRMA();
+    // 10 VRMA parallel load karo (background me)
+    loadAllVRMA();
 
     // Greeting
     setTimeout(() => {
-      if (vrmaClips['greeting']) {
-        playVRMA('greeting');
+      if (vrmaClips['anim02']) {
+        playVRMA('anim02');
         setExpression('greeting', 1.0);
       } else {
         startMotion('wave', 1.0);
@@ -325,26 +323,47 @@ loader.load(VRM_URL, async (gltf) => {
   statusEl.textContent = 'failed';
 });
 
-/* ================= VRMA LOADING ================= */
+/* ================= VRMA LOADING (Parallel) ================= */
 async function loadAllVRMA() {
   const names = Object.keys(VRMA_FILES);
-  for (const name of names) {
-    try {
+  statusEl.textContent = 'animations…';
+
+  const results = await Promise.allSettled(
+    names.map(async (name) => {
       const gltf = await loader.loadAsync(VRMA_FILES[name]);
       const vrmAnim = gltf.userData.vrmAnimations?.[0];
-      if (!vrmAnim) {
-        console.warn(`⚠️ No VRMA data in ${name}`);
-        continue;
-      }
+      if (!vrmAnim) throw new Error('No VRMA data');
       const clip = createVRMAnimationClip(vrmAnim, vrm);
       vrmaClips[name] = clip;
-      console.log(`✅ VRMA loaded: ${name} (${clip.duration.toFixed(2)}s)`);
-    } catch (e) {
-      console.warn(`❌ VRMA failed: ${name}`, e);
-    }
+      console.log(`✅ ${name} (${clip.duration.toFixed(1)}s)`);
+      return name;
+    })
+  );
+
+  const loaded = results.filter(r => r.status === 'fulfilled').length;
+  console.log(`📊 Total VRMA loaded: ${loaded}/${names.length}`);
+  statusEl.textContent = 'ready';
+}
+
+/* ================= LAZY LOADING (heavy files) ================= */
+async function loadLazyVRMA(name) {
+  if (vrmaClips[name]) return true;
+  if (!LAZY_VRMA[name]) return false;
+
+  statusEl.textContent = 'loading ' + name + '…';
+  try {
+    const gltf = await loader.loadAsync(LAZY_VRMA[name]);
+    const vrmAnim = gltf.userData.vrmAnimations?.[0];
+    if (!vrmAnim) throw new Error('No VRMA data');
+    vrmaClips[name] = createVRMAnimationClip(vrmAnim, vrm);
+    console.log(`✅ Lazy loaded: ${name} (${vrmaClips[name].duration.toFixed(1)}s)`);
+    statusEl.textContent = 'ready';
+    return true;
+  } catch (e) {
+    console.warn('Lazy load failed:', name, e);
+    statusEl.textContent = 'ready';
+    return false;
   }
-  const count = Object.keys(vrmaClips).length;
-  console.log(`Total VRMA loaded: ${count}/${names.length}`);
 }
 
 /* ================= VRMA PLAYBACK ================= */
@@ -352,7 +371,6 @@ function playVRMA(name, fadeIn = 0.3) {
   const clip = vrmaClips[name];
   if (!clip || !mixer) return false;
 
-  // Purana action fade out
   if (currentVRMAction) {
     currentVRMAction.fadeOut(fadeIn);
   }
@@ -366,7 +384,6 @@ function playVRMA(name, fadeIn = 0.3) {
 
   currentVRMAction = action;
 
-  // Khatam hone pe idle pe wapas
   const onFinished = (e) => {
     if (e.action === action) {
       action.fadeOut(0.4);
@@ -484,67 +501,20 @@ const MOTIONS = {
   nod:   { dur:0.7, headX:0.30,  headY:0,    neckX:0.15, neckY:0,    spineX:0.05,  lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0,    rArmZ:1.15 },
   shake: { dur:0.8, headX:0,     headY:0.35, neckX:0,    neckY:0.15, spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0,    rArmZ:1.15 },
   think: { dur:1.6, headX:0.15,  headY:0.25, neckX:0.1,  neckY:0.12, spineX:0.05,  lArmX:-1.3,  lArmY:-0.3, lArmZ:-0.6,  lForeX:-1.6, lForeY:0.2, lForeZ:0,   rArmX:0,    rArmZ:1.15 },
-  wave: {
-    dur: 2.0,
-    headX: 0.04, headY: 0.10,
-    neckX: 0.02, neckY: 0.05,
-    spineX: 0,
-    lArmX: -0.20, lArmY: 0.0, lArmZ: 0.10,
-    lForeX: -1.20, lForeY: 0.0, lForeZ: 0.0,
-    rArmX: 0, rArmZ: 1.15,
-    wave: true
-  },
-  cheer: {
-    dur: 1.4,
-    headX: -0.10, headY: 0,
-    neckX: -0.05, neckY: 0,
-    spineX: -0.05,
-    lArmX: -0.30, lArmY: 0, lArmZ: 1.10, lForeX: -0.35,
-    rArmX: -0.30, rArmZ: -1.10, rForeX: -0.35,
-    bounce: true
-  },
+  wave:  { dur:2.0, headX:0.04,  headY:0.10, neckX:0.02, neckY:0.05, spineX:0,     lArmX:-0.20, lArmY:0.0,  lArmZ:0.10,  lForeX:-1.20, lForeY:0, lForeZ:0,   rArmX:0,    rArmZ:1.15, wave:true },
+  cheer: { dur:1.4, headX:-0.10, headY:0,    neckX:-0.05,neckY:0,    spineX:-0.05, lArmX:-0.30, lArmY:0,    lArmZ:1.10,  lForeX:-0.35, lForeY:0, lForeZ:0,   rArmX:-0.30, rArmZ:-1.10, rForeX:-0.35, bounce:true },
   laugh: { dur:1.1, headX:0.20,  headY:0,    neckX:0.1,  neckY:0,    spineX:0.08,  lArmX:-0.3,  lArmY:0,    lArmZ:-1.0,  lForeX:-0.4, lForeY:0,   lForeZ:0,   rArmX:-0.3, rArmZ:1.0, bounce:true },
   bow:   { dur:1.4, headX:0.4,   headY:0,    neckX:0.2,  neckY:0,    spineX:0.35,  lArmX:0.2,   lArmY:0,    lArmZ:-1.0,  lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0.2,  rArmZ:1.0 },
-  stretch:{ dur:1.8, headX:-0.2, headY:0,   neckX:-0.1, neckY:0,    spineX:-0.05, lArmX:-0.3,  lArmY:0,    lArmZ:1.5,   lForeX:-0.2, lForeY:0,   lForeZ:0,   rArmX:-0.3, rArmZ:-1.5 },
+  stretch:{ dur:1.8, headX:-0.2, headY:0,    neckX:-0.1, neckY:0,    spineX:-0.05, lArmX:-0.3,  lArmY:0,    lArmZ:1.5,   lForeX:-0.2, lForeY:0,   lForeZ:0,   rArmX:-0.3, rArmZ:-1.5 },
   tilt:  { dur:1.2, headX:0.1,   headY:0.2,  neckX:0.05, neckY:0.1,  spineX:0.03,  lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:0,    rArmZ:1.15 },
   jump:  { dur:1.0, headX:-0.15, headY:0,    neckX:-0.08,neckY:0,    spineX:-0.05, lArmX:-0.4,  lArmY:0,    lArmZ:0.3,   lForeX:-1.0, lForeY:0,   lForeZ:0,   rArmX:-0.4, rArmZ:-0.3, bounce:true, hop:true },
   point: { dur:1.5, headX:0,     headY:0.15, neckX:0,    neckY:0.08, spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:-1.4, rArmZ:0.4 },
   salute:{ dur:1.3, headX:0.05,  headY:0,    neckX:0.03, neckY:0,    spineX:0,     lArmX:0,     lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:-1.6, rArmZ:0.6, rForeX:-1.6 },
-  handsHips:{ dur:1.5, headX:0, headY:0,     neckX:0,    neckY:0,    spineX:0,     lArmX:0,     lArmY:0.2,  lArmZ:-0.7,  lForeX:-1.3, lForeY:0.3, lForeZ:0,   rArmX:0,    rArmZ:0.7 },
-  peace: {
-    dur: 1.8,
-    headX: -0.05, headY: 0.15,
-    neckX: -0.03, neckY: 0.08,
-    spineX: 0,
-    lArmX: -0.3, lArmY: 0, lArmZ: -1.15,
-    lForeX: 0, lForeY: 0, lForeZ: 0,
-    rArmX: -1.5, rArmZ: 0.5, rForeX: -1.5
-  },
-  clap: {
-    dur: 1.5,
-    headX: -0.08, headY: 0,
-    neckX: -0.05, neckY: 0,
-    spineX: -0.03,
-    lArmX: -0.5, lArmY: 0.3, lArmZ: -0.4, lForeX: -0.8,
-    rArmX: -0.5, rArmZ: 0.4, rForeX: -0.8,
-    bounce: true
-  },
-  crossArms: {
-    dur: 2.2,
-    headX: 0.05, headY: -0.1,
-    neckX: 0.03, neckY: -0.05,
-    spineX: 0.02,
-    lArmX: -0.7, lArmY: 0.5, lArmZ: -0.6, lForeX: -1.6, lForeY: 0.4,
-    rArmX: -0.7, rArmZ: 0.6, rForeX: -1.6
-  },
-  pray: {
-    dur: 2.0,
-    headX: 0.3, headY: 0,
-    neckX: 0.15, neckY: 0,
-    spineX: 0.15,
-    lArmX: -1.1, lArmY: 0.4, lArmZ: -0.3, lForeX: -1.7,
-    rArmX: -1.1, rArmZ: 0.3, rForeX: -1.7
-  }
+  handsHips:{ dur:1.5, headX:0,  headY:0,    neckX:0,    neckY:0,    spineX:0,     lArmX:0,     lArmY:0.2,  lArmZ:-0.7,  lForeX:-1.3, lForeY:0.3, lForeZ:0,   rArmX:0,    rArmZ:0.7 },
+  peace: { dur:1.8, headX:-0.05, headY:0.15, neckX:-0.03,neckY:0.08, spineX:0,     lArmX:-0.3,  lArmY:0,    lArmZ:-1.15, lForeX:0,    lForeY:0,   lForeZ:0,   rArmX:-1.5, rArmZ:0.5, rForeX:-1.5 },
+  clap:  { dur:1.5, headX:-0.08, headY:0,    neckX:-0.05,neckY:0,    spineX:-0.03, lArmX:-0.5,  lArmY:0.3,  lArmZ:-0.4,  lForeX:-0.8, lForeY:0,   lForeZ:0,   rArmX:-0.5, rArmZ:0.4, rForeX:-0.8, bounce:true },
+  crossArms:{ dur:2.2, headX:0.05, headY:-0.1, neckX:0.03, neckY:-0.05, spineX:0.02, lArmX:-0.7, lArmY:0.5, lArmZ:-0.6, lForeX:-1.6, lForeY:0.4, lForeZ:0, rArmX:-0.7, rArmZ:0.6, rForeX:-1.6 },
+  pray:  { dur:2.0, headX:0.3,   headY:0,    neckX:0.15, neckY:0,    spineX:0.15,  lArmX:-1.1,  lArmY:0.4,  lArmZ:-0.3,  lForeX:-1.7, lForeY:0,   lForeZ:0,   rArmX:-1.1, rArmZ:0.3, rForeX:-1.7 }
 };
 
 let motionName = 'idle';
@@ -575,7 +545,6 @@ function animate() {
   if (vrm) {
     updateBlink(dt);
     updateExpressions(dt);
-    // Manual body animation sirf tab chalao jab VRMA play na ho raha ho
     if (!currentVRMAction) {
       updateBody(t, dt);
     }
@@ -705,7 +674,6 @@ function updateBody(t, dt) {
     const handWave = (m.wave && env > 0.25) ? Math.sin(t * 11 - 0.3) * 0.35 * envAmp : 0;
     B.leftHand.rotation.z += (handWave - B.leftHand.rotation.z) * (1 - Math.pow(0.001, dt * 12));
   }
-
   if (B.rightUpperArm) {
     B.rightUpperArm.rotation.x += (tgtRArmX - B.rightUpperArm.rotation.x) * dampArm;
     B.rightUpperArm.rotation.z += (tgtRArmZ - B.rightUpperArm.rotation.z) * dampArm;
@@ -718,7 +686,7 @@ function updateBody(t, dt) {
 /* ================= GEMINI AI ================= */
 const EXPRESSION_LIST = Object.keys(COMPOSITE).join(', ');
 const MOTION_LIST = Object.keys(MOTIONS).join(', ');
-const VRMA_LIST = Object.keys(VRMA_FILES).join(', ');
+const VRMA_LIST = Object.keys(VRMA_FILES).concat(Object.keys(LAZY_VRMA)).join(', ');
 
 const SYSTEM_PROMPT = `
 You are "Lumii", a cheerful, expressive anime girl.
@@ -742,13 +710,16 @@ Available fallback motions (use only if no VRMA fits):
 ${MOTION_LIST}
 
 Guidelines:
-- Greeting / namaste / hello → motion: "greeting" (VRMA)
-- Peace sign / V sign → motion: "peace" (VRMA)
-- Shoot / finger gun → motion: "shoot" (VRMA)
-- Spin / ghumna / twirl → motion: "spin" (VRMA)
-- Model pose / pose dikhao → motion: "modelPose" (VRMA)
-- Squat / baithna → motion: "squat" (VRMA)
-- Full body show → motion: "showBody" (VRMA)
+- Greeting / namaste / hello → motion: "anim02" (VRMA)
+- Peace sign / V sign → motion: "anim03" (VRMA)
+- Shoot / finger gun → motion: "anim04" (VRMA)
+- Spin / ghumna / twirl → motion: "anim05" (VRMA)
+- Model pose / pose dikhao → motion: "anim06" (VRMA)
+- Squat / baithna → motion: "anim07" (VRMA)
+- Full body show → motion: "anim01" (VRMA)
+- Reading / padhna → motion: "reading" (VRMA)
+- Dance / naach / gaana → motion: "anim08" or "anim09" or "anim10" (random VRMA)
+- Koi bhi random VRMA → anim08 / anim09 / anim10 me se pick karo
 - Happy / nod → motion: "nod"
 - Laugh / giggle → expression: "laugh" or "giggle", motion: "laugh"
 - Sad / cry → expression: "sad" or "cry", motion: "idle"
@@ -764,7 +735,6 @@ Guidelines:
 - Pray / pranam → expression: "relieved", motion: "pray"
 - Shy / sharmana → expression: "flustered" or "shy", motion: "idle"
 - Bored / serious → expression: "deadpan" or "bored", motion: "crossArms"
-- Bow / jhukna → expression: "relieved", motion: "bow"
 
 Reply in user's language (Hindi / English / Hinglish).
 Keep reply short and natural — 1-2 sentences max.
@@ -839,7 +809,6 @@ async function handleSend() {
   statusEl.textContent = 'thinking…';
   bubble.classList.remove('show');
 
-  // Thinking pose
   startMotion('nod', 0.5);
   setExpression('think', 0.9);
 
@@ -849,13 +818,31 @@ async function handleSend() {
     bubble.classList.add('show');
     setExpression(ai.expression || 'neutral', 1.0);
 
-    // Pehle VRMA try karo, warna manual motion
-    const motionName = ai.motion || 'idle';
+    const motionKey = ai.motion || 'idle';
+
+    // Lazy load agar heavy VRMA maangi
+    if (!vrmaClips[motionKey] && LAZY_VRMA[motionKey]) {
+      await loadLazyVRMA(motionKey);
+    }
+
     setTimeout(() => {
-      if (vrmaClips[motionName]) {
-        playVRMA(motionName);
+      // 1. VRMA exact match
+      if (vrmaClips[motionKey]) {
+        playVRMA(motionKey);
+        return;
+      }
+      // 2. Manual motion match
+      if (MOTIONS[motionKey]) {
+        startMotion(motionKey, ai.intensity ?? 1.0);
+        return;
+      }
+      // 3. Fallback: random VRMA
+      const vrmaKeys = Object.keys(vrmaClips);
+      if (vrmaKeys.length > 0) {
+        const random = vrmaKeys[Math.floor(Math.random() * vrmaKeys.length)];
+        playVRMA(random);
       } else {
-        startMotion(motionName, ai.intensity ?? 1.0);
+        startMotion('idle', 1.0);
       }
     }, 250);
 
