@@ -310,9 +310,13 @@ loader.load(VRM_URL, async (gltf) => {
     if (VRMUtils.removeUnnecessaryVertices) VRMUtils.removeUnnecessaryVertices(gltf.scene);
     if (VRMUtils.combineSkeletons) VRMUtils.combineSkeletons(gltf.scene);
     if (VRMUtils.combineMorphs) VRMUtils.combineMorphs(vrm);
+
+    // ✅ VRM 0.x models ko correct direction me ghumao
     VRMUtils.rotateVRM0(vrm);
 
+    // ✅ Extra: ensure model camera ki taraf face kare
     vrm.scene.rotation.y = 0;
+
     vrm.scene.position.set(0, 0, 0);
     scene.add(vrm.scene);
     vrm.scene.updateMatrixWorld(true);
@@ -410,13 +414,18 @@ async function loadAllVRMA() {
 
   const results = await Promise.allSettled(
     names.map(async (name) => {
-      const gltf = await loader.loadAsync(VRMA_FILES[name]);
-      const vrmAnim = gltf.userData.vrmAnimations?.[0];
-      if (!vrmAnim) throw new Error('No VRMA data');
-      const clip = createVRMAnimationClip(vrmAnim, vrm);
-      vrmaClips[name] = clip;
-      log(`✅ ${name} (${clip.duration.toFixed(1)}s)`, 'ok');
-      return name;
+      try {
+        const gltf = await loader.loadAsync(VRMA_FILES[name]);
+        const vrmAnim = gltf.userData.vrmAnimations?.[0];
+        if (!vrmAnim) throw new Error('No VRMA data');
+        const clip = createVRMAnimationClip(vrmAnim, vrm);
+        vrmaClips[name] = clip;
+        log(`✅ ${name} (${clip.duration.toFixed(1)}s)`, 'ok');
+        return name;
+      } catch (e) {
+        log(`❌ ${name}: ${e.message || e}`, 'error');
+        throw e;
+      }
     })
   );
 
@@ -446,7 +455,7 @@ async function loadLazyVRMA(name) {
   }
 }
 
-/* ================= VRMA PLAYBACK (T-POSE FIX) ================= */
+/* ================= VRMA PLAYBACK ================= */
 function playVRMA(name, fadeIn = 0.3) {
   const clip = vrmaClips[name];
   if (!clip || !mixer) {
@@ -480,14 +489,10 @@ function playVRMA(name, fadeIn = 0.3) {
         action.stop();
         action.enabled = false;
         action.setEffectiveWeight(0);
-      } catch (err) {
-        log('⚠️ stop: ' + err.message, 'warn');
-      }
+      } catch (err) {}
 
       try { mixer.stopAllAction(); } catch {}
-      try { mixer.uncacheRoot(vrm.scene); } catch (err) {
-        log('⚠️ uncacheRoot: ' + err.message, 'warn');
-      }
+      try { mixer.uncacheRoot(vrm.scene); } catch (err) {}
 
       currentVRMAction = null;
       motionName = 'idle';
@@ -695,6 +700,7 @@ function animate() {
     updateBlink(dt);
     updateExpressions(dt);
 
+    // ✅ Safety: agar action chal nahi raha par reference bacha hai
     if (currentVRMAction && !currentVRMAction.isRunning()) {
       currentVRMAction = null;
       resetToIdlePose();
@@ -707,7 +713,12 @@ function animate() {
     }
     vrm.update(dt);
   }
-  if (mixer) mixer.update(dt);
+
+  // ✅ Mixer sirf tab chalao jab animation ACTIVE ho
+  if (mixer && currentVRMAction) {
+    mixer.update(dt);
+  }
+
   controls.update();
   renderer.render(scene, camera);
 }
