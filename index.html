@@ -122,7 +122,7 @@
 
   <div id="bubble"></div>
   <div id="status">init…</div>
-  <div id="hint">💡 1-finger: ghumao · 2-finger: zoom/pan</div>
+  <div id="hint">💡 1-finger: ghumao · 2-finger: zoom/pan · Tap model: touch karo!</div>
 
   <div id="chatBox">
     <input id="userInput" placeholder="Type hello…" autocomplete="off" />
@@ -697,6 +697,171 @@ function easeOutBack(t) { const c1 = 1.70158, c3 = c1 + 1;
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
 function easeInOut(t) { return t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+/* ================= TOUCH REACTIONS ================= */
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2();
+
+// Har zone: keywords jo bone/mesh naam me dhoondhenge (case-insensitive),
+// priority order matters — upar wala pehle match hoga
+const TOUCH_ZONES = [
+  { key: 'hair',     match: ['hair', 'bangs', 'ahoge'], bones: ['head'] },
+  { key: 'head',     match: ['head', 'face'], bones: ['head'] },
+  { key: 'cheek',    match: ['cheek', 'face'], bones: ['head'] },
+  { key: 'shoulder', match: ['shoulder'], bones: ['leftShoulder','rightShoulder','leftUpperArm','rightUpperArm'] },
+  { key: 'hand',     match: ['hand', 'finger'], bones: ['leftHand','rightHand','leftLowerArm','rightLowerArm'] }
+];
+
+const TOUCH_REACTIONS = {
+  hair: {
+    lines: [
+      'Ehh~ baal mat kharab karo! 🥺',
+      'Hehe, itna pyaar se baal sehlaoge to sharam aa jayegi~',
+      'Mere baal itne soft hai na? Bas tumhare liye~'
+    ],
+    expression: 'shy', motion: 'tilt'
+  },
+  head: {
+    lines: [
+      'Ehh, sar pe pat kyu kar rahe ho, main koi bachi nahi hu! 😳',
+      'Awwie~ itna pyaar se mat dekho mujhe...',
+      'Accha accha, ab shy mat karwao~'
+    ],
+    expression: 'flustered', motion: 'nod'
+  },
+  cheek: {
+    lines: [
+      'Ehh! Gaal pe touch mat karo, main sharma jaungi~ 💗',
+      'Itni himmat! Par... cute lag raha tha ye 😳',
+      'Aise touch karoge to blush ho jayegi main~'
+    ],
+    expression: 'blush', motion: 'shake'
+  },
+  shoulder: {
+    lines: [
+      'Kandhe pe haath? Kitne close ho gaye hum~',
+      'Hehe, ekdum se kandha kyu chhoo diya, darr gayi thi main! 😳',
+      'Tumhara touch itna comfortable hai... 🥹'
+    ],
+    expression: 'surprised', motion: 'nod'
+  },
+  hand: {
+    lines: [
+      'Haath pakadoge? Chalo theek hai, thoda thoda~ 🤭',
+      'Ehh, haath mat pakdo aise, dil dhak-dhak karne laga!',
+      'Tumhare haath ka touch acha lagta hai mujhe~'
+    ],
+    expression: 'love', motion: 'peace'
+  }
+};
+
+let lastTouchTime = 0;
+let touchSpamCount = 0;
+
+function getTouchZone(object) {
+  // Mesh/bone naam upar se traverse karke best-match zone dhoondhna
+  let node = object;
+  const nameChain = [];
+  while (node) {
+    if (node.name) nameChain.push(node.name.toLowerCase());
+    node = node.parent;
+  }
+  const fullName = nameChain.join(' ');
+
+  for (const zone of TOUCH_ZONES) {
+    for (const kw of zone.match) {
+      if (fullName.includes(kw)) return zone.key;
+    }
+  }
+  return null;
+}
+
+function getTouchZoneByHeight(point) {
+  // Fallback: agar naam se match na ho, to Y-height (world space) ke hisaab se guess karo
+  if (!vrm?.scene) return 'head';
+  const box = new THREE.Box3().setFromObject(vrm.scene);
+  const h = box.max.y - box.min.y || 1.6;
+  const relY = (point.y - box.min.y) / h;
+
+  if (relY > 0.88) return 'hair';
+  if (relY > 0.78) return 'head';
+  if (relY > 0.65) return 'cheek';
+  if (relY > 0.45) return 'shoulder';
+  return 'hand';
+}
+
+function triggerTouchReaction(zoneKey) {
+  const reaction = TOUCH_REACTIONS[zoneKey] || TOUCH_REACTIONS.head;
+
+  const now = performance.now();
+  if (now - lastTouchTime < 4000) {
+    touchSpamCount++;
+  } else {
+    touchSpamCount = 0;
+  }
+  lastTouchTime = now;
+
+  let line;
+  if (touchSpamCount >= 3) {
+    line = 'Bas bas! Bahut ho gaya, thoda rehne do~ 😤';
+    setExpression('angry', 0.7);
+    startMotion('crossArms', 0.8);
+  } else {
+    line = reaction.lines[Math.floor(Math.random() * reaction.lines.length)];
+    setExpression(reaction.expression, 1.0);
+    if (MOTIONS[reaction.motion]) startMotion(reaction.motion, 0.9);
+  }
+
+  bubble.textContent = line;
+  bubble.classList.add('show');
+  clearTimeout(triggerTouchReaction._t);
+  triggerTouchReaction._t = setTimeout(() => bubble.classList.remove('show'), 2600);
+
+  clearTimeout(triggerTouchReaction._e);
+  triggerTouchReaction._e = setTimeout(() => setExpression('neutral', 0.6), 2800);
+
+  log('👆 touch: ' + zoneKey + (touchSpamCount >= 3 ? ' (spam!)' : ''), 'info');
+}
+
+function onModelTap(clientX, clientY) {
+  if (!vrm?.scene) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObject(vrm.scene, true);
+  if (!hits.length) return;
+
+  const hit = hits[0];
+  let zone = getTouchZone(hit.object);
+  if (!zone) zone = getTouchZoneByHeight(hit.point);
+
+  triggerTouchReaction(zone);
+}
+
+// Tap vs drag/orbit differentiate karna: chhota movement + chhota time = tap
+let touchStartPos = null;
+let touchStartTime = 0;
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  touchStartPos = { x: e.clientX, y: e.clientY };
+  touchStartTime = performance.now();
+}, { passive: true });
+
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (!touchStartPos) return;
+  const dx = e.clientX - touchStartPos.x;
+  const dy = e.clientY - touchStartPos.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const dt = performance.now() - touchStartTime;
+  touchStartPos = null;
+
+  // Sirf tap count hoga (drag/rotate/pinch nahi), aur single-finger hi
+  if (dist < 8 && dt < 350 && e.isPrimary) {
+    onModelTap(e.clientX, e.clientY);
+  }
+}, { passive: true });
 
 /* ================= ANIMATION LOOP ================= */
 let blinkTimer = 0, blinkState = 'open', blinkNext = 2 + Math.random() * 3;
